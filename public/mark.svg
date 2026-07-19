@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">ReelRecall</title>
+  <rect width="64" height="64" rx="20" fill="#7782C8"/>
+  <path d="M20 18h15c8 0 13 4 13 11 0 5-3 8-7 10l8 9H37l-7-8v8H20V18Zm10 8v7h5c2 0 4-1 4-4s-2-3-4-3h-5Z" fill="#fff"/>
+  <circle cx="47" cy="18" r="5" fill="#E9877E"/>
+</svg>
