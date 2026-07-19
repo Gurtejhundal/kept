@@ -1,5 +1,5 @@
-import { ReelRecallApp } from "@/components/reel-recall-app";
+import { KeptApp } from "@/components/kept-app";
 
 export default function HomePage() {
-  return <ReelRecallApp />;
+  return <KeptApp />;
 }

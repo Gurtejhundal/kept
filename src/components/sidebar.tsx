@@ -25,8 +25,8 @@ export function Sidebar({ activeView, onNavigate, onSave }: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="Main navigation">
       <div className="brand-block">
-        <span className="brand-mark">R</span>
-        <span className="brand-name">ReelRecall</span>
+        <span className="brand-mark">K</span>
+        <span className="brand-name">Kept</span>
       </div>
       <nav className="desktop-nav">
         {primaryNav.map(({ id, label, icon: Icon }) => (

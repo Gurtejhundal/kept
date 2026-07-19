@@ -42,7 +42,7 @@ import {
 } from "@/lib/types";
 import { domainFromUrl } from "@/lib/urls";
 
-const STORAGE_KEY = "reelrecall-v1";
+const STORAGE_KEY = "kept-v1";
 
 interface ToastState {
   message: string;
@@ -106,7 +106,7 @@ const viewCopy: Record<ViewId, { eyebrow: string; title: string; description: st
   settings: { eyebrow: "", title: "", description: "" },
 };
 
-export function ReelRecallApp() {
+export function KeptApp() {
   const searchRef = useRef<HTMLInputElement>(null);
   const toastTimer = useRef<number | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -270,20 +270,26 @@ export function ReelRecallApp() {
     showToast(existing ? "Saved another copy with new context" : "Saved to your archive");
   }
 
-  function updateItem(id: string, patch: Partial<SavedItem>) {
+  const updateItem = useCallback((id: string, patch: Partial<SavedItem>) => {
     setItems((current) => current.map((item) => item.id === id ? { ...item, ...patch } : item));
-  }
+  }, []);
 
-  function moveItem(id: string, state: ItemState) {
-    const previous = items.find((item) => item.id === id)?.state ?? "active";
-    updateItem(id, { state });
-    if (state === "trashed") setSelectedItemId(null);
-    const label = state === "active" ? "Restored to your archive" : state === "archived" ? "Moved to archive" : "Moved to trash";
-    showToast(label, () => {
-      updateItem(id, { state: previous });
-      showToast("Action undone");
+  const moveItem = useCallback((id: string, state: ItemState) => {
+    setItems((current) => {
+      const item = current.find((x) => x.id === id);
+      if (!item) return current;
+      const previous = item.state;
+      const label = state === "active" ? "Restored to your archive" : state === "archived" ? "Moved to archive" : "Moved to trash";
+      
+      showToast(label, () => {
+        setItems((now) => now.map((x) => x.id === id ? { ...x, state: previous } : x));
+        showToast("Action undone");
+      });
+
+      return current.map((x) => x.id === id ? { ...x, state } : x);
     });
-  }
+    setSelectedItemId(null);
+  }, [showToast]);
 
   function createCollection(title: string, description: string) {
     setCollections((current) => [{
@@ -318,7 +324,7 @@ export function ReelRecallApp() {
         <div className="app-column">
           <header className="mobile-topbar">
             <button type="button" className="mobile-brand" onClick={() => navigate("home")}>
-              <span>R</span> ReelRecall
+              <span>K</span> Kept
             </button>
             <div>
               <button className="icon-button" type="button" onClick={() => setNotificationsOpen((value) => !value)} aria-label="Open notifications">

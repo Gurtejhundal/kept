@@ -33,7 +33,7 @@ export function SettingsView({
   onToast,
 }: SettingsViewProps) {
   function exportJson() {
-    downloadFile(JSON.stringify(items, null, 2), "reelrecall-export.json", "application/json");
+    downloadFile(JSON.stringify(items, null, 2), "kept-export.json", "application/json");
     onToast("JSON export downloaded");
   }
 
@@ -43,7 +43,7 @@ export function SettingsView({
       ["title", "creator", "category", "destination", "saved_at"],
       ...items.map((item) => [item.title, item.creator, item.category, item.destinationUrl, item.savedAt]),
     ];
-    downloadFile(rows.map((row) => row.map(quoted).join(",")).join("\n"), "reelrecall-export.csv", "text/csv");
+    downloadFile(rows.map((row) => row.map(quoted).join(",")).join("\n"), "kept-export.csv", "text/csv");
     onToast("CSV export downloaded");
   }
 
@@ -89,7 +89,7 @@ export function SettingsView({
         </article>
 
         <article className="settings-card privacy-card">
-          <div className="settings-card-heading"><ShieldCheck size={19} aria-hidden="true" /><div><h2>Privacy by default</h2><p>Collections start private. ReelRecall never asks for your Instagram password or reads private DMs.</p></div></div>
+          <div className="settings-card-heading"><ShieldCheck size={19} aria-hidden="true" /><div><h2>Privacy by default</h2><p>Collections start private. Kept never asks for your Instagram password or reads private DMs.</p></div></div>
           <button className="quiet-action" type="button" onClick={() => onToast("Search history cleared")}>Clear search history</button>
         </article>
 

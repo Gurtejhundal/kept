@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "reelrecall-archive",
+  "name": "kept-archive",
   "compatibility_date": "2026-07-19",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./worker/index.ts",
