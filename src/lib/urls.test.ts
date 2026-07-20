@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   domainFromUrl,
+  detectSourcePlatform,
   extractUrls,
   isSafeWebUrl,
   normalizeUrl,
@@ -31,16 +32,31 @@ describe("URL ingestion", () => {
     ).toBe("https://example.com/item?color=black");
   });
 
-  it("separates the reel from the destination", () => {
+  it("separates a source post from its destination", () => {
     expect(
       splitSharedLinks([
         "https://instagram.com/reel/abc",
         "https://example.com/item",
       ]),
     ).toEqual({
-      reelUrl: "https://instagram.com/reel/abc",
       destinationUrl: "https://example.com/item",
+      sourcePlatform: "Instagram",
+      sourceUrl: "https://instagram.com/reel/abc",
     });
+  });
+
+  it("does not duplicate a single destination as an original post", () => {
+    expect(splitSharedLinks(["https://example.com/article"])).toEqual({
+      destinationUrl: "https://example.com/article",
+      sourcePlatform: "Web",
+      sourceUrl: "",
+    });
+  });
+
+  it("detects common sharing platforms", () => {
+    expect(detectSourcePlatform("https://www.tiktok.com/@kept/video/1")).toBe("TikTok");
+    expect(detectSourcePlatform("https://youtu.be/example")).toBe("YouTube");
+    expect(detectSourcePlatform("https://example.com/article")).toBe("Web");
   });
 
   it("returns a readable domain", () => {

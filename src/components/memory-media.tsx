@@ -4,21 +4,21 @@ import { ImagePlus } from "lucide-react";
 interface MemoryMediaProps {
   title: string;
   spriteIndex: number;
-  thumbnailData?: string;
+  thumbnailUrl?: string;
   priority?: boolean;
 }
 
 export function MemoryMedia({
   title,
   spriteIndex,
-  thumbnailData,
+  thumbnailUrl,
   priority = false,
 }: MemoryMediaProps) {
-  if (thumbnailData) {
+  if (thumbnailUrl) {
     return (
       <Image
-        src={thumbnailData}
-        alt={`Saved reel thumbnail for ${title}`}
+        src={thumbnailUrl}
+        alt={`Visual reference for ${title}`}
         fill
         unoptimized
         sizes="(max-width: 767px) 50vw, (max-width: 1279px) 30vw, 20vw"
@@ -39,7 +39,7 @@ export function MemoryMedia({
   return (
     <Image
       src={`/memories/memory-${String((spriteIndex % 12) + 1).padStart(2, "0")}.jpg`}
-      alt={`Saved reel thumbnail for ${title}`}
+      alt={`Visual reference for ${title}`}
       fill
       priority={priority}
       sizes="(max-width: 767px) 50vw, (max-width: 1279px) 30vw, 20vw"

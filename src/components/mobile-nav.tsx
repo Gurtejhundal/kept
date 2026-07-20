@@ -1,4 +1,4 @@
-import { FolderHeart, Home, Plus, Search } from "lucide-react";
+import { Bookmark, FolderHeart, Home, Plus, Search } from "lucide-react";
 import type { ViewId } from "@/lib/types";
 
 interface MobileNavProps {
@@ -10,6 +10,7 @@ interface MobileNavProps {
 const mobileItems = [
   { id: "home" as const, label: "Home", icon: Home },
   { id: "search" as const, label: "Search", icon: Search },
+  { id: "all" as const, label: "All saves", icon: Bookmark },
   { id: "collections" as const, label: "Collections", icon: FolderHeart },
 ];
 
@@ -17,7 +18,7 @@ export function MobileNav({ activeView, onNavigate, onSave }: MobileNavProps) {
   return (
     <nav className="mobile-nav" aria-label="Mobile navigation">
       {mobileItems.slice(0, 2).map(({ id, label, icon: Icon }) => (
-        <button key={id} type="button" className={activeView === id ? "active" : ""} onClick={() => onNavigate(id)}>
+        <button key={id} type="button" className={activeView === id ? "active" : ""} onClick={() => onNavigate(id)} aria-current={activeView === id ? "page" : undefined}>
           <Icon aria-hidden="true" size={21} />
           <span>{label}</span>
         </button>
@@ -27,15 +28,11 @@ export function MobileNav({ activeView, onNavigate, onSave }: MobileNavProps) {
         <span>Save</span>
       </button>
       {mobileItems.slice(2).map(({ id, label, icon: Icon }) => (
-        <button key={id} type="button" className={activeView === id ? "active" : ""} onClick={() => onNavigate(id)}>
+        <button key={id} type="button" className={activeView === id ? "active" : ""} onClick={() => onNavigate(id)} aria-current={activeView === id ? "page" : undefined}>
           <Icon aria-hidden="true" size={21} />
           <span>{label}</span>
         </button>
       ))}
-      <button type="button" className={activeView === "settings" ? "active" : ""} onClick={() => onNavigate("settings")}>
-        <span className="mobile-avatar">GS</span>
-        <span>Profile</span>
-      </button>
     </nav>
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import {
   Archive,
   Check,
@@ -8,7 +8,7 @@ import {
   Clock3,
   Copy,
   ExternalLink,
-  Film,
+  Link2,
   MoreHorizontal,
   RotateCcw,
   Share2,
@@ -16,13 +16,15 @@ import {
   X,
 } from "lucide-react";
 import { categories, type Category, type Collection, type ItemState, type SavedItem } from "@/lib/types";
+import { useDialogFocus } from "@/lib/use-dialog-focus";
 import { MemoryMedia } from "./memory-media";
 
 interface DetailPanelProps {
   item: SavedItem;
   collections: Collection[];
+  thumbnailUrl?: string;
   onClose: () => void;
-  onUpdate: (id: string, patch: Partial<SavedItem>) => void;
+  onUpdate: (id: string, patch: Partial<SavedItem>) => Promise<void>;
   onMove: (id: string, state: ItemState) => void;
   onToast: (message: string) => void;
 }
@@ -34,37 +36,34 @@ function formatLongDate(value: string) {
   }).format(new Date(value));
 }
 
-export function DetailPanel({ item, collections, onClose, onUpdate, onMove, onToast }: DetailPanelProps) {
+export function DetailPanel({ item, collections, thumbnailUrl, onClose, onUpdate, onMove, onToast }: DetailPanelProps) {
+  const dialogRef = useRef<HTMLElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(item.title);
   const [notes, setNotes] = useState(item.notes);
   const [category, setCategory] = useState<Category>(item.category);
   const [collectionId, setCollectionId] = useState(item.collectionIds[0] ?? "");
+  const [editError, setEditError] = useState("");
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    document.body.classList.add("panel-open");
-    closeButtonRef.current?.focus();
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      document.body.classList.remove("panel-open");
-    };
-  }, [onClose]);
+  useDialogFocus(dialogRef, { initialFocusRef: closeButtonRef, onClose });
 
-  function saveEdits(event: FormEvent<HTMLFormElement>) {
+  async function saveEdits(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onUpdate(item.id, {
-      title: title.trim() || item.title,
-      notes: notes.trim(),
-      category,
-      collectionIds: collectionId ? [collectionId] : [],
-    });
-    setEditing(false);
-    onToast("Details updated");
+    try {
+      await onUpdate(item.id, {
+        title: title.trim() || item.title,
+        notes: notes.trim(),
+        category,
+        collectionIds: collectionId ? [collectionId] : [],
+        metadataStatus: title.trim() && notes.trim() ? "complete" : "incomplete",
+      });
+      setEditError("");
+      setEditing(false);
+      onToast("Details updated");
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : "The edit could not be stored.");
+    }
   }
 
   async function copyLink() {
@@ -93,7 +92,7 @@ export function DetailPanel({ item, collections, onClose, onUpdate, onMove, onTo
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <aside className="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
+      <aside ref={dialogRef} tabIndex={-1} className="detail-panel" role="dialog" aria-modal="true" aria-labelledby="detail-title">
         <div className="detail-topbar">
           <button className="quiet-action" type="button" onClick={() => setEditing((value) => !value)}>
             {editing ? "Cancel editing" : "Edit details"}
@@ -111,11 +110,11 @@ export function DetailPanel({ item, collections, onClose, onUpdate, onMove, onTo
           </div>
         </div>
 
-        <div className={`detail-media ${item.reelStatus === "deleted" ? "is-deleted" : ""}`}>
-          <MemoryMedia title={item.title} spriteIndex={item.spriteIndex} thumbnailData={item.thumbnailData} priority />
-          <span className={`detail-status status-${item.reelStatus}`}>
+        <div className={`detail-media ${item.sourceStatus === "unavailable" ? "is-deleted" : ""}`}>
+          <MemoryMedia title={item.title} spriteIndex={item.spriteIndex} thumbnailUrl={thumbnailUrl} priority />
+          <span className={`detail-status status-${item.sourceStatus}`}>
             <span aria-hidden="true" />
-            {item.reelStatus === "deleted" ? "Reel deleted" : item.reelStatus === "unknown" ? "Status unknown" : "Reel available"}
+            {item.sourceStatus === "unavailable" ? "Source unavailable" : item.sourceStatus === "unchecked" ? "Source not checked" : "Source available"}
           </span>
         </div>
 
@@ -150,6 +149,7 @@ export function DetailPanel({ item, collections, onClose, onUpdate, onMove, onTo
               <label htmlFor="edit-notes">Notes</label>
               <textarea id="edit-notes" rows={4} value={notes} onChange={(event) => setNotes(event.target.value)} />
             </div>
+            {editError && <p className="form-error" role="alert">{editError}</p>}
             <button className="primary-button" type="submit"><Check size={18} aria-hidden="true" /> Save changes</button>
           </form>
         ) : (
@@ -161,22 +161,23 @@ export function DetailPanel({ item, collections, onClose, onUpdate, onMove, onTo
             </div>
 
             <div className="detail-primary-actions">
-              <a className="primary-button" href={item.destinationUrl} target="_blank" rel="noreferrer" onClick={() => onUpdate(item.id, { lastOpenedAt: new Date().toISOString() })}>
+              <a className="primary-button" href={item.destinationUrl} target="_blank" rel="noreferrer" onClick={() => void onUpdate(item.id, { lastOpenedAt: new Date().toISOString() })}>
                 Open link <ExternalLink size={17} aria-hidden="true" />
               </a>
               <button className="secondary-button icon-only-mobile" type="button" onClick={copyLink}>
                 <Copy size={17} aria-hidden="true" /> <span>Copy</span>
               </button>
             </div>
-            {item.reelUrl && (
-              <a className="reel-link" href={item.reelUrl} target="_blank" rel="noreferrer">
-                <Film size={17} aria-hidden="true" /> View original reel <ExternalLink size={15} aria-hidden="true" />
+            {item.sourceUrl && (
+              <a className="source-link" href={item.sourceUrl} target="_blank" rel="noreferrer">
+                <Link2 size={17} aria-hidden="true" /> View original post on {item.sourcePlatform} <ExternalLink size={15} aria-hidden="true" />
               </a>
             )}
 
             <dl className="metadata-grid">
               <div><dt>Saved</dt><dd>{formatLongDate(item.savedAt)}</dd></div>
               <div><dt>Destination</dt><dd>{item.domain}</dd></div>
+              <div><dt>Source</dt><dd>{item.sourcePlatform}</dd></div>
               <div><dt>Collection</dt><dd>{collections.find((value) => item.collectionIds.includes(value.id))?.title ?? "Not collected"}</dd></div>
               <div><dt>Details</dt><dd>{item.metadataStatus === "complete" ? "Complete" : "Needs attention"}</dd></div>
             </dl>
@@ -203,7 +204,7 @@ export function DetailPanel({ item, collections, onClose, onUpdate, onMove, onTo
           {item.state !== "trashed" && (
             <button className="danger-action" type="button" onClick={() => onMove(item.id, "trashed")}><Trash2 size={17} aria-hidden="true" /> Move to trash</button>
           )}
-          <span><Clock3 size={14} aria-hidden="true" /> Context is preserved if the reel disappears.</span>
+          <span><Clock3 size={14} aria-hidden="true" /> Your note and visual reference remain if the source changes.</span>
         </footer>
       </aside>
     </div>

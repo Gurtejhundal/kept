@@ -7,6 +7,7 @@ interface MemoryCardProps {
   onOpen: (item: SavedItem) => void;
   list?: boolean;
   priority?: boolean;
+  thumbnailUrl?: string;
 }
 
 function formatCompactDate(value: string) {
@@ -16,21 +17,21 @@ function formatCompactDate(value: string) {
   }).format(new Date(value));
 }
 
-export function MemoryCard({ item, onOpen, list = false, priority }: MemoryCardProps) {
+export function MemoryCard({ item, onOpen, list = false, priority, thumbnailUrl }: MemoryCardProps) {
   const statusLabel =
-    item.reelStatus === "deleted"
-      ? "Reel deleted"
+    item.sourceStatus === "unavailable"
+      ? "Source unavailable"
       : item.metadataStatus === "incomplete"
         ? "Details incomplete"
-        : item.reelStatus === "unknown"
-          ? "Reel status unknown"
-          : "Reel available";
+        : item.sourceStatus === "unchecked"
+          ? "Source not checked"
+          : "Source available";
 
   if (list) {
     return (
       <button className="memory-list-row" type="button" onClick={() => onOpen(item)}>
         <span className="list-thumbnail">
-          <MemoryMedia title={item.title} spriteIndex={item.spriteIndex} thumbnailData={item.thumbnailData} />
+          <MemoryMedia title={item.title} spriteIndex={item.spriteIndex} thumbnailUrl={thumbnailUrl} />
         </span>
         <span className="list-copy">
           <strong>{item.title}</strong>
@@ -38,7 +39,7 @@ export function MemoryCard({ item, onOpen, list = false, priority }: MemoryCardP
         </span>
         <span className="list-category">{item.category}</span>
         <span className="list-date">{formatCompactDate(item.savedAt)}</span>
-        <span className={`status-text status-${item.reelStatus}`}>{statusLabel}</span>
+        <span className={`status-text status-${item.sourceStatus}`}>{statusLabel}</span>
         <ArrowUpRight aria-hidden="true" size={18} />
       </button>
     );
@@ -52,18 +53,18 @@ export function MemoryCard({ item, onOpen, list = false, priority }: MemoryCardP
         onClick={() => onOpen(item)}
         aria-label={`Open ${item.title}`}
       >
-        <span className={`memory-card-media ${item.reelStatus === "deleted" ? "is-deleted" : ""}`}>
+        <span className={`memory-card-media ${item.sourceStatus === "unavailable" ? "is-deleted" : ""}`}>
           <MemoryMedia
             title={item.title}
             spriteIndex={item.spriteIndex}
-            thumbnailData={item.thumbnailData}
+            thumbnailUrl={thumbnailUrl}
             priority={priority}
           />
           <span className="card-open-icon" aria-hidden="true">
             <ArrowUpRight size={17} />
           </span>
-          {item.reelStatus === "deleted" && (
-            <span className="deleted-badge"><CircleAlert size={13} /> Reel deleted</span>
+          {item.sourceStatus === "unavailable" && (
+            <span className="deleted-badge"><CircleAlert size={13} /> Source unavailable</span>
           )}
         </span>
         <span className="memory-card-copy">
@@ -71,7 +72,7 @@ export function MemoryCard({ item, onOpen, list = false, priority }: MemoryCardP
           <span className="card-byline">{item.handle} · {formatCompactDate(item.savedAt)}</span>
           <span className="card-footer">
             <span className={`category category-${item.category.toLowerCase()}`}>{item.category}</span>
-            <span className={`card-status status-${item.reelStatus}`} title={statusLabel}>
+            <span className={`card-status status-${item.sourceStatus}`} title={statusLabel}>
               {item.metadataStatus === "incomplete" ? (
                 <CircleAlert size={13} aria-hidden="true" />
               ) : (

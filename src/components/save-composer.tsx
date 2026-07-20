@@ -12,7 +12,13 @@ import {
   LoaderCircle,
   X,
 } from "lucide-react";
-import { categories, type Category, type Collection } from "@/lib/types";
+import {
+  categories,
+  sourcePlatforms,
+  type Category,
+  type Collection,
+  type SourcePlatform,
+} from "@/lib/types";
 import {
   domainFromUrl,
   extractUrls,
@@ -20,6 +26,7 @@ import {
   normalizeUrl,
   splitSharedLinks,
 } from "@/lib/urls";
+import { useDialogFocus } from "@/lib/use-dialog-focus";
 
 export interface NewItemInput {
   title: string;
@@ -27,52 +34,59 @@ export interface NewItemInput {
   category: Category;
   collectionId: string;
   destinationUrl: string;
-  reelUrl: string;
+  sourcePlatform: SourcePlatform;
+  sourceUrl: string;
   notes: string;
   receivedAt: string;
-  thumbnailData?: string;
+  thumbnailBlob?: Blob;
 }
 
 interface SaveComposerProps {
   collections: Collection[];
+  initialSharedText?: string;
   onClose: () => void;
-  onSave: (input: NewItemInput) => void;
+  onSave: (input: NewItemInput) => Promise<void>;
 }
 
-export function SaveComposer({ collections, onClose, onSave }: SaveComposerProps) {
+export function SaveComposer({ collections, initialSharedText = "", onClose, onSave }: SaveComposerProps) {
+  const dialogRef = useRef<HTMLElement>(null);
+  const sharedTextRef = useRef<HTMLTextAreaElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
-  const [sharedText, setSharedText] = useState("");
+  const [sharedText, setSharedText] = useState(initialSharedText);
   const [destinationUrl, setDestinationUrl] = useState("");
-  const [reelUrl, setReelUrl] = useState("");
+  const [sourceUrl, setSourceUrl] = useState("");
+  const [sourcePlatform, setSourcePlatform] = useState<SourcePlatform>("Other");
   const [title, setTitle] = useState("");
   const [creator, setCreator] = useState("");
   const [category, setCategory] = useState<Category>("Other");
   const [collectionId, setCollectionId] = useState("");
   const [notes, setNotes] = useState("");
   const [receivedAt, setReceivedAt] = useState("");
-  const [thumbnailData, setThumbnailData] = useState<string>();
+  const [thumbnailBlob, setThumbnailBlob] = useState<Blob>();
+  const [thumbnailPreview, setThumbnailPreview] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   const detectedUrls = useMemo(() => extractUrls(sharedText), [sharedText]);
   const visibleDomain = destinationUrl ? domainFromUrl(destinationUrl) : "Waiting for a link";
 
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    document.body.classList.add("modal-open");
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      document.body.classList.remove("modal-open");
-    };
-  }, [onClose]);
+  useDialogFocus(dialogRef, { initialFocusRef: sharedTextRef, onClose });
 
-  function applyDetectedLinks() {
-    const detected = splitSharedLinks(detectedUrls);
+  useEffect(() => () => {
+    if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
+  }, [thumbnailPreview]);
+
+  useEffect(() => {
+    if (initialSharedText) applyDetectedLinks(initialSharedText);
+    // Initial share text is intentionally processed once when the sheet opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function applyDetectedLinks(value = sharedText) {
+    const detected = splitSharedLinks(extractUrls(value));
     if (detected.destinationUrl) setDestinationUrl(detected.destinationUrl);
-    if (detected.reelUrl) setReelUrl(detected.reelUrl);
+    if (detected.sourceUrl) setSourceUrl(detected.sourceUrl);
+    setSourcePlatform(detected.sourcePlatform);
     if (!title && detected.destinationUrl) {
       const domain = domainFromUrl(detected.destinationUrl).split(".")[0];
       setTitle(`Find from ${domain.charAt(0).toUpperCase()}${domain.slice(1)}`);
@@ -87,42 +101,45 @@ export function SaveComposer({ collections, onClose, onSave }: SaveComposerProps
       setError("Choose an image file for the thumbnail.");
       return;
     }
-    if (file.size > 1.5 * 1024 * 1024) {
-      setError("Keep the thumbnail under 1.5 MB so this local archive remains reliable.");
+    if (file.size > 8 * 1024 * 1024) {
+      setError("Keep visual references under 8 MB.");
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") setThumbnailData(reader.result);
-    };
-    reader.readAsDataURL(file);
+    if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
+    setThumbnailBlob(file);
+    setThumbnailPreview(URL.createObjectURL(file));
+    setError("");
   }
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
     if (!isSafeWebUrl(destinationUrl)) {
       setError("Add a valid http or https destination link.");
       return;
     }
-    if (reelUrl && !isSafeWebUrl(reelUrl)) {
-      setError("The reel link must use http or https.");
+    if (sourceUrl && !isSafeWebUrl(sourceUrl)) {
+      setError("The original post link must use http or https.");
       return;
     }
     setSaving(true);
-    window.setTimeout(() => {
-      onSave({
+    try {
+      await onSave({
         title: title.trim() || `Saved from ${domainFromUrl(destinationUrl)}`,
         creator: creator.trim(),
         category,
         collectionId,
         destinationUrl: normalizeUrl(destinationUrl),
-        reelUrl,
+        sourcePlatform,
+        sourceUrl: sourceUrl ? normalizeUrl(sourceUrl) : "",
         notes: notes.trim(),
         receivedAt,
-        thumbnailData,
+        thumbnailBlob,
       });
-    }, 360);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Kept could not save this item.");
+      setSaving(false);
+    }
   }
 
   return (
@@ -132,7 +149,7 @@ export function SaveComposer({ collections, onClose, onSave }: SaveComposerProps
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <section className="save-composer" role="dialog" aria-modal="true" aria-labelledby="composer-title">
+      <section ref={dialogRef} tabIndex={-1} className="save-composer" role="dialog" aria-modal="true" aria-labelledby="composer-title" aria-describedby="composer-description">
         <header className="panel-header">
           <div>
             <span className="eyebrow">QUICK CAPTURE</span>
@@ -145,35 +162,35 @@ export function SaveComposer({ collections, onClose, onSave }: SaveComposerProps
 
         <form onSubmit={handleSubmit}>
           <div className="capture-paste-block">
-            <label htmlFor="shared-message">Paste the DM or shared text</label>
+            <label htmlFor="shared-message">Message, link, or shared text</label>
             <textarea
+              ref={sharedTextRef}
               id="shared-message"
-            value={sharedText}
-              autoFocus
+              value={sharedText}
               onChange={(event) => setSharedText(event.target.value)}
-              placeholder="Paste the message from Instagram. We’ll find the links."
+              placeholder="Paste anything you received or found. Kept will detect the links."
               rows={3}
             />
             <div className="paste-summary">
               <span><Link2 size={15} aria-hidden="true" /> {detectedUrls.length || "No"} link{detectedUrls.length === 1 ? "" : "s"} detected</span>
-              <button type="button" onClick={applyDetectedLinks} disabled={detectedUrls.length === 0}>
+              <button type="button" onClick={() => applyDetectedLinks()} disabled={detectedUrls.length === 0}>
                 Use detected links <ArrowRight size={14} aria-hidden="true" />
               </button>
             </div>
           </div>
 
           <div className="composer-preview">
-            {thumbnailData ? (
-              <Image src={thumbnailData} alt="New save thumbnail preview" fill unoptimized className="memory-image" />
+            {thumbnailPreview ? (
+              <Image src={thumbnailPreview} alt="New visual reference preview" fill unoptimized className="memory-image" />
             ) : (
               <label className="thumbnail-picker" htmlFor="thumbnail-file">
                 <ImagePlus size={27} aria-hidden="true" />
-                <strong>Add reel screenshot</strong>
+                <strong>Add visual reference</strong>
                 <span>Optional · JPG, PNG, or WebP</span>
               </label>
             )}
             <input id="thumbnail-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleImage} />
-            {thumbnailData && (
+            {thumbnailPreview && (
               <label className="replace-thumbnail" htmlFor="thumbnail-file">Replace image</label>
             )}
           </div>
@@ -231,8 +248,17 @@ export function SaveComposer({ collections, onClose, onSave }: SaveComposerProps
             <summary>More details <ChevronDown size={16} aria-hidden="true" /></summary>
             <div className="advanced-grid">
               <div className="form-stack">
-                <label htmlFor="reel-link">Original reel link</label>
-                <input id="reel-link" inputMode="url" value={reelUrl} onChange={(event) => setReelUrl(event.target.value)} placeholder="https://instagram.com/reel/..." />
+                <label htmlFor="source-link">Original post</label>
+                <input id="source-link" inputMode="url" value={sourceUrl} onChange={(event) => setSourceUrl(event.target.value)} placeholder="https://..." />
+              </div>
+              <div className="form-stack">
+                <label htmlFor="source-platform">Source platform</label>
+                <div className="select-wrap">
+                  <select id="source-platform" value={sourcePlatform} onChange={(event) => setSourcePlatform(event.target.value as SourcePlatform)}>
+                    {sourcePlatforms.map((platform) => <option key={platform}>{platform}</option>)}
+                  </select>
+                  <ChevronDown size={16} aria-hidden="true" />
+                </div>
               </div>
               <div className="form-stack">
                 <label htmlFor="creator">Creator</label>
@@ -251,9 +277,9 @@ export function SaveComposer({ collections, onClose, onSave }: SaveComposerProps
 
           {error && <p className="form-error" role="alert">{error}</p>}
 
-          <div className="composer-domain-line">
+          <div className="composer-domain-line" id="composer-description">
             <Clock3 size={15} aria-hidden="true" />
-            <span>Metadata can finish in the background. Your save will not wait.</span>
+            <span>Details and image blobs are stored separately on this device.</span>
           </div>
 
           <button className="primary-button save-submit" type="submit" disabled={saving}>

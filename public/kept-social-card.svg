@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title description">
+  <title id="title">Kept — Find what you saved</title>
+  <desc id="description">A soft editorial visual archive for links, posts, and ideas.</desc>
+  <defs>
+    <linearGradient id="canvas" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#efe8fb"/>
+      <stop offset="0.55" stop-color="#f8f6f2"/>
+      <stop offset="1" stop-color="#f8e7e0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="url(#canvas)"/>
+  <rect x="70" y="58" width="1060" height="514" rx="34" fill="#fffefc" stroke="#dddbe5"/>
+  <g transform="translate(132 124)">
+    <rect width="72" height="72" rx="21" fill="#5661a8"/>
+    <path d="M21 17h12v17L47 17h14L45 36l17 20H47L33 39v17H21V17Z" fill="#fffefc"/>
+    <circle cx="56" cy="15" r="6" fill="#e9877e"/>
+  </g>
+  <text x="224" y="179" fill="#242630" font-family="Inter,Arial,sans-serif" font-size="44" font-weight="700">Kept</text>
+  <text x="132" y="318" fill="#242630" font-family="Georgia,serif" font-size="82">Find what you saved.</text>
+  <text x="136" y="384" fill="#5d6070" font-family="Inter,Arial,sans-serif" font-size="29">A private visual archive for the things worth keeping.</text>
+  <rect x="136" y="452" width="180" height="14" rx="7" fill="#d7dcf8"/>
+  <rect x="332" y="452" width="126" height="14" rx="7" fill="#f4c8bf"/>
+  <rect x="474" y="452" width="224" height="14" rx="7" fill="#d7eadf"/>
+</svg>

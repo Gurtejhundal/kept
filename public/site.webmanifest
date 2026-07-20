@@ -1,19 +1,65 @@
 {
-  "name": "Kept",
+  "name": "Kept — Find what you saved",
   "short_name": "Kept",
+  "description": "A private, visual archive for links, posts, and ideas.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#f4f5f8",
+  "background_color": "#f4f5f8",
+  "categories": ["productivity", "utilities", "lifestyle"],
   "icons": [
     {
       "src": "/android-chrome-192x192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/android-chrome-512x512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
-  "theme_color": "#ffffff",
-  "background_color": "#ffffff",
-  "display": "standalone"
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url"
+    }
+  },
+  "shortcuts": [
+    {
+      "name": "Save a link",
+      "short_name": "Save",
+      "description": "Open the Kept capture form",
+      "url": "/share"
+    },
+    {
+      "name": "Search archive",
+      "short_name": "Search",
+      "description": "Open your searchable archive",
+      "url": "/?view=search"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "/pwa-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Kept home on mobile"
+    },
+    {
+      "src": "/pwa-wide.png",
+      "sizes": "1440x900",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Kept visual archive on desktop"
+    }
+  ]
 }

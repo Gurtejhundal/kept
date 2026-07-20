@@ -1,15 +1,26 @@
 "use client";
 
-import { Download, Grid2X2, List, Moon, ShieldCheck, Sun, Trash2 } from "lucide-react";
+import { Download, Grid2X2, HardDrive, List, Monitor, Moon, ShieldCheck, Sun, Trash2 } from "lucide-react";
 import type { Density, SavedItem, Theme } from "@/lib/types";
 
+export interface StorageEstimate {
+  persisted: boolean;
+  quota: number;
+  usage: number;
+}
+
 interface SettingsViewProps {
-  theme: Theme;
   density: Density;
   items: SavedItem[];
-  onThemeChange: (theme: Theme) => void;
+  onClearSearchHistory: () => Promise<void>;
   onDensityChange: (density: Density) => void;
+  onRequestPersistence: () => Promise<void>;
+  onResetArchive: () => Promise<void>;
+  onThemeChange: (theme: Theme) => void;
   onToast: (message: string) => void;
+  recentSearches: string[];
+  storage: StorageEstimate;
+  theme: Theme;
 }
 
 function downloadFile(contents: string, fileName: string, type: string) {
@@ -24,13 +35,23 @@ function downloadFile(contents: string, fileName: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+function formatBytes(value: number) {
+  if (!value) return "0 MB";
+  return `${(value / 1024 / 1024).toFixed(value > 10 * 1024 * 1024 ? 0 : 1)} MB`;
+}
+
 export function SettingsView({
-  theme,
   density,
   items,
-  onThemeChange,
+  onClearSearchHistory,
   onDensityChange,
+  onRequestPersistence,
+  onResetArchive,
+  onThemeChange,
   onToast,
+  recentSearches,
+  storage,
+  theme,
 }: SettingsViewProps) {
   function exportJson() {
     downloadFile(JSON.stringify(items, null, 2), "kept-export.json", "application/json");
@@ -40,48 +61,62 @@ export function SettingsView({
   function exportCsv() {
     const quoted = (value: string) => `"${value.replaceAll('"', '""')}"`;
     const rows = [
-      ["title", "creator", "category", "destination", "saved_at"],
-      ...items.map((item) => [item.title, item.creator, item.category, item.destinationUrl, item.savedAt]),
+      ["title", "creator", "category", "platform", "destination", "saved_at"],
+      ...items.map((item) => [item.title, item.creator, item.category, item.sourcePlatform, item.destinationUrl, item.savedAt]),
     ];
     downloadFile(rows.map((row) => row.map(quoted).join(",")).join("\n"), "kept-export.csv", "text/csv");
     onToast("CSV export downloaded");
   }
 
+  async function confirmReset() {
+    if (!window.confirm("Delete every locally stored item, collection, and visual reference from this browser?")) return;
+    await onResetArchive();
+  }
+
+  const storagePercentage = storage.quota > 0 ? Math.min(100, (storage.usage / storage.quota) * 100) : 0;
+
   return (
     <section className="view-section settings-view" aria-labelledby="settings-title">
       <header className="page-header">
         <div>
-          <span className="eyebrow">YOUR ACCOUNT</span>
+          <span className="eyebrow">THIS DEVICE</span>
           <h1 id="settings-title">Settings</h1>
-          <p>Choose how your archive feels and keep control of what you have saved.</p>
+          <p>Control how this local archive looks, persists, and leaves your browser.</p>
         </div>
       </header>
 
       <div className="settings-grid">
         <article className="settings-card profile-card">
-          <span className="settings-avatar">GS</span>
-          <div><h2>Gurtej</h2><p>gurtej@example.com</p></div>
-          <span className="plan-badge">Free archive</span>
+          <span className="settings-avatar">K</span>
+          <div><h2>Local archive</h2><p>No account is connected. Data stays in this browser.</p></div>
+          <span className="plan-badge">Device only</span>
         </article>
 
         <article className="settings-card">
-          <div className="settings-card-heading"><Sun size={19} aria-hidden="true" /><div><h2>Appearance</h2><p>Keep the archive calm in either theme.</p></div></div>
-          <div className="segmented-control" aria-label="Color theme">
-            <button type="button" className={theme === "light" ? "active" : ""} onClick={() => onThemeChange("light")}><Sun size={16} /> Light</button>
-            <button type="button" className={theme === "dark" ? "active" : ""} onClick={() => onThemeChange("dark")}><Moon size={16} /> Dark</button>
+          <div className="settings-card-heading"><Sun size={19} aria-hidden="true" /><div><h2>Appearance</h2><p>Follow the device or choose a fixed theme.</p></div></div>
+          <div className="segmented-control three-options" aria-label="Color theme">
+            <button type="button" className={theme === "light" ? "active" : ""} onClick={() => onThemeChange("light")}><Sun size={16} aria-hidden="true" /> Light</button>
+            <button type="button" className={theme === "dark" ? "active" : ""} onClick={() => onThemeChange("dark")}><Moon size={16} aria-hidden="true" /> Dark</button>
+            <button type="button" className={theme === "system" ? "active" : ""} onClick={() => onThemeChange("system")}><Monitor size={16} aria-hidden="true" /> System</button>
           </div>
         </article>
 
         <article className="settings-card">
           <div className="settings-card-heading"><Grid2X2 size={19} aria-hidden="true" /><div><h2>Library view</h2><p>Choose visual recall or compact management.</p></div></div>
           <div className="segmented-control" aria-label="Library view">
-            <button type="button" className={density === "grid" ? "active" : ""} onClick={() => onDensityChange("grid")}><Grid2X2 size={16} /> Masonry</button>
-            <button type="button" className={density === "list" ? "active" : ""} onClick={() => onDensityChange("list")}><List size={16} /> List</button>
+            <button type="button" className={density === "grid" ? "active" : ""} onClick={() => onDensityChange("grid")}><Grid2X2 size={16} aria-hidden="true" /> Masonry</button>
+            <button type="button" className={density === "list" ? "active" : ""} onClick={() => onDensityChange("list")}><List size={16} aria-hidden="true" /> List</button>
           </div>
         </article>
 
+        <article className="settings-card storage-card">
+          <div className="settings-card-heading"><HardDrive size={19} aria-hidden="true" /><div><h2>Browser storage</h2><p>{formatBytes(storage.usage)} used of {formatBytes(storage.quota)} available to this origin.</p></div></div>
+          <div className="storage-meter" role="meter" aria-label="Browser storage used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(storagePercentage)}><span style={{ width: `${storagePercentage}%` }} /></div>
+          <div className="storage-status"><span>{storage.persisted ? "Protected from automatic browser eviction" : "The browser may evict data under storage pressure"}</span>{!storage.persisted && <button className="quiet-action" type="button" onClick={() => void onRequestPersistence()}>Protect local data</button>}</div>
+        </article>
+
         <article className="settings-card export-card">
-          <div className="settings-card-heading"><Download size={19} aria-hidden="true" /><div><h2>Export your archive</h2><p>Your titles, notes, categories, links, and dates remain portable.</p></div></div>
+          <div className="settings-card-heading"><Download size={19} aria-hidden="true" /><div><h2>Export your archive</h2><p>Titles, notes, platforms, links, and dates remain portable.</p></div></div>
           <div className="settings-actions">
             <button className="secondary-button" type="button" onClick={exportJson}>Download JSON</button>
             <button className="secondary-button" type="button" onClick={exportCsv}>Download CSV</button>
@@ -89,13 +124,13 @@ export function SettingsView({
         </article>
 
         <article className="settings-card privacy-card">
-          <div className="settings-card-heading"><ShieldCheck size={19} aria-hidden="true" /><div><h2>Privacy by default</h2><p>Collections start private. Kept never asks for your Instagram password or reads private DMs.</p></div></div>
-          <button className="quiet-action" type="button" onClick={() => onToast("Search history cleared")}>Clear search history</button>
+          <div className="settings-card-heading"><ShieldCheck size={19} aria-hidden="true" /><div><h2>Privacy by default</h2><p>Kept does not request social-media passwords or read private messages.</p></div></div>
+          <button className="quiet-action" type="button" disabled={recentSearches.length === 0} onClick={() => void onClearSearchHistory()}>Clear {recentSearches.length || "no"} recent searches</button>
         </article>
 
         <article className="settings-card danger-card">
-          <div className="settings-card-heading"><Trash2 size={19} aria-hidden="true" /><div><h2>Delete account</h2><p>Start a recoverable account deletion request.</p></div></div>
-          <button className="danger-outline-button" type="button" onClick={() => onToast("Deletion request requires confirmation")}>Request deletion</button>
+          <div className="settings-card-heading"><Trash2 size={19} aria-hidden="true" /><div><h2>Reset local archive</h2><p>Permanently remove this browser’s items, collections, and image blobs.</p></div></div>
+          <button className="danger-outline-button" type="button" onClick={() => void confirmReset()}>Delete local data</button>
         </article>
       </div>
     </section>

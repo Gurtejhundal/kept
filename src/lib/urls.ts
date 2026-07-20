@@ -1,3 +1,5 @@
+import type { SourcePlatform } from "./types";
+
 const URL_PATTERN = /https?:\/\/[^\s<>"')\]]+/gi;
 
 export function extractUrls(value: string): string[] {
@@ -28,6 +30,10 @@ export function normalizeUrl(value: string): string {
     "utm_content",
     "fbclid",
     "igshid",
+    "mc_cid",
+    "mc_eid",
+    "ref",
+    "share_id",
   ].forEach((key) => url.searchParams.delete(key));
   url.hash = "";
   return url.toString();
@@ -41,9 +47,29 @@ export function domainFromUrl(value: string): string {
   }
 }
 
+export function detectSourcePlatform(value: string): SourcePlatform {
+  try {
+    const hostname = new URL(value).hostname.replace(/^www\./, "").toLowerCase();
+    if (hostname === "instagram.com" || hostname.endsWith(".instagram.com")) return "Instagram";
+    if (hostname === "tiktok.com" || hostname.endsWith(".tiktok.com")) return "TikTok";
+    if (["youtube.com", "youtu.be"].includes(hostname) || hostname.endsWith(".youtube.com")) return "YouTube";
+    if (["wa.me", "whatsapp.com"].includes(hostname) || hostname.endsWith(".whatsapp.com")) return "WhatsApp";
+    if (["t.me", "telegram.me"].includes(hostname)) return "Telegram";
+    return "Web";
+  } catch {
+    return "Other";
+  }
+}
+
 export function splitSharedLinks(urls: string[]) {
-  const reelUrl =
-    urls.find((url) => /instagram\.com\/(reel|p)\//i.test(url)) ?? "";
-  const destinationUrl = urls.find((url) => url !== reelUrl) ?? reelUrl ?? "";
-  return { destinationUrl, reelUrl };
+  const normalized = urls.map(normalizeUrl);
+  const platformUrl = normalized.find((url) => detectSourcePlatform(url) !== "Web") ?? "";
+  const destinationUrl = normalized.find((url) => url !== platformUrl) ?? platformUrl ?? normalized[0] ?? "";
+  const sourcePlatform = detectSourcePlatform(platformUrl || destinationUrl);
+  const sourceUrl = normalized.length > 1 && platformUrl ? platformUrl : "";
+  return {
+    destinationUrl,
+    sourcePlatform,
+    sourceUrl,
+  };
 }

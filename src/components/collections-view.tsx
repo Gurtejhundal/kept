@@ -1,17 +1,16 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import { Check, LockKeyhole, Plus, Share2, X } from "lucide-react";
+import { type FormEvent, useState } from "react";
+import { Check, LockKeyhole, Plus, X } from "lucide-react";
 import type { Collection, SavedItem } from "@/lib/types";
 import { MemoryMedia } from "./memory-media";
 
 interface CollectionsViewProps {
   collections: Collection[];
   items: SavedItem[];
-  sharedOnly?: boolean;
   onCreate: (title: string, description: string) => void;
-  onToggleShare: (id: string) => void;
   onOpenItem: (item: SavedItem) => void;
+  thumbnailUrls: Record<string, string>;
 }
 
 function formatUpdated(value: string) {
@@ -24,15 +23,13 @@ function formatUpdated(value: string) {
 export function CollectionsView({
   collections,
   items,
-  sharedOnly = false,
   onCreate,
-  onToggleShare,
   onOpenItem,
+  thumbnailUrls,
 }: CollectionsViewProps) {
   const [creating, setCreating] = useState(false);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const visible = sharedOnly ? collections.filter((collection) => collection.shared) : collections;
 
   function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -45,17 +42,15 @@ export function CollectionsView({
 
   return (
     <section className="view-section" aria-labelledby="collections-title">
-      <header className="page-header">
+      <header className="page-header collections-page-header">
         <div>
           <span className="eyebrow">CURATED BOARDS</span>
-          <h1 id="collections-title">{sharedOnly ? "Shared collections" : "Your collections"}</h1>
-          <p>{sharedOnly ? "Collections with an active private share link." : "Small moodboards for the ideas that belong together."}</p>
+          <h1 id="collections-title">Your collections</h1>
+          <p>Private, local moodboards for the ideas that belong together.</p>
         </div>
-        {!sharedOnly && (
-          <button className="primary-button" type="button" onClick={() => setCreating(true)}>
-            <Plus size={18} aria-hidden="true" /> New collection
-          </button>
-        )}
+        <button className="primary-button" type="button" onClick={() => setCreating(true)}>
+          <Plus size={18} aria-hidden="true" /> New collection
+        </button>
       </header>
 
       {creating && (
@@ -69,22 +64,20 @@ export function CollectionsView({
             <input id="collection-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="What belongs here?" />
           </div>
           <button className="primary-button" type="submit"><Check size={17} aria-hidden="true" /> Create</button>
-          <button className="icon-button" type="button" onClick={() => setCreating(false)} aria-label="Cancel new collection"><X size={19} /></button>
+          <button className="icon-button" type="button" onClick={() => setCreating(false)} aria-label="Cancel new collection"><X size={19} aria-hidden="true" /></button>
         </form>
       )}
 
-      {visible.length === 0 ? (
+      {collections.length === 0 ? (
         <div className="empty-state">
-          <h2>{sharedOnly ? "Nothing is shared right now." : "This space is waiting for its first collection."}</h2>
-          <p>{sharedOnly ? "Share a collection when you want someone else to browse it." : "Group finds by a plan, a mood, or a future version of you."}</p>
+          <h2>This space is waiting for its first collection.</h2>
+          <p>Group finds by a plan, a mood, or a future version of you.</p>
         </div>
       ) : (
         <div className="collection-grid">
-          {visible.map((collection) => {
-            const collectionItems = collection.itemIds
-              .map((id) => items.find((item) => item.id === id))
-              .filter((item): item is SavedItem => Boolean(item))
-              .slice(0, 4);
+          {collections.map((collection) => {
+            const allCollectionItems = items.filter((item) => item.state === "active" && item.collectionIds.includes(collection.id));
+            const collectionItems = allCollectionItems.slice(0, 4);
             return (
               <article className="collection-card" key={collection.id}>
                 <div className={`collection-collage count-${collectionItems.length}`}>
@@ -92,7 +85,7 @@ export function CollectionsView({
                     <div className="collection-placeholder" />
                   ) : collectionItems.map((item) => (
                     <button type="button" key={item.id} onClick={() => onOpenItem(item)} aria-label={`Open ${item.title}`}>
-                      <MemoryMedia title={item.title} spriteIndex={item.spriteIndex} thumbnailData={item.thumbnailData} />
+                      <MemoryMedia title={item.title} spriteIndex={item.spriteIndex} thumbnailUrl={thumbnailUrls[item.id]} />
                     </button>
                   ))}
                 </div>
@@ -102,11 +95,8 @@ export function CollectionsView({
                     <p>{collection.description}</p>
                   </div>
                   <div className="collection-meta">
-                    <span>{collection.itemIds.length} {collection.itemIds.length === 1 ? "memory" : "memories"} · updated {formatUpdated(collection.updatedAt)}</span>
-                    <button type="button" onClick={() => onToggleShare(collection.id)} className={collection.shared ? "is-shared" : ""}>
-                      {collection.shared ? <Share2 size={15} aria-hidden="true" /> : <LockKeyhole size={15} aria-hidden="true" />}
-                      {collection.shared ? "Shared" : "Private"}
-                    </button>
+                    <span>{allCollectionItems.length} {allCollectionItems.length === 1 ? "memory" : "memories"} · updated {formatUpdated(collection.updatedAt)}</span>
+                    <span className="collection-private"><LockKeyhole size={15} aria-hidden="true" /> Private on this device</span>
                   </div>
                 </div>
               </article>

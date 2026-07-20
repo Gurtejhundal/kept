@@ -1,4 +1,5 @@
-import { Archive, Bookmark, FolderHeart, Home, Plus, Search, Settings, Share2, Trash2 } from "lucide-react";
+import { Archive, Bookmark, FolderHeart, Home, Plus, Search, Settings, Trash2 } from "lucide-react";
+import Image from "next/image";
 import type { ViewId } from "@/lib/types";
 
 const primaryNav: Array<{ id: ViewId; label: string; icon: typeof Home }> = [
@@ -6,7 +7,6 @@ const primaryNav: Array<{ id: ViewId; label: string; icon: typeof Home }> = [
   { id: "search", label: "Search", icon: Search },
   { id: "all", label: "All saves", icon: Bookmark },
   { id: "collections", label: "Collections", icon: FolderHeart },
-  { id: "shared", label: "Shared", icon: Share2 },
 ];
 
 const utilityNav: Array<{ id: ViewId; label: string; icon: typeof Home }> = [
@@ -25,7 +25,7 @@ export function Sidebar({ activeView, onNavigate, onSave }: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="Main navigation">
       <div className="brand-block">
-        <img src="/apple-touch-icon.png" alt="Kept" className="brand-mark-img" width={35} height={35} />
+        <Image src="/kept-mark.svg" alt="" className="brand-mark-img" width={35} height={35} priority />
         <span className="brand-name">Kept</span>
       </div>
       <nav className="desktop-nav">
@@ -61,8 +61,8 @@ export function Sidebar({ activeView, onNavigate, onSave }: SidebarProps) {
         ))}
       </nav>
       <button type="button" className="profile-summary" onClick={() => onNavigate("settings")}>
-        <span className="avatar">GS</span>
-        <span><strong>Gurtej</strong><small>Free archive</small></span>
+        <span className="avatar">K</span>
+        <span><strong>Local archive</strong><small>Private on this device</small></span>
       </button>
     </aside>
   );

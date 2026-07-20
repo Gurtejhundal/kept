@@ -15,7 +15,17 @@ export const categories = [
 
 export type Category = (typeof categories)[number];
 export type ItemState = "active" | "archived" | "trashed";
-export type ReelStatus = "available" | "deleted" | "unknown";
+export const sourcePlatforms = [
+  "Instagram",
+  "TikTok",
+  "YouTube",
+  "WhatsApp",
+  "Telegram",
+  "Web",
+  "Other",
+] as const;
+export type SourcePlatform = (typeof sourcePlatforms)[number];
+export type SourceStatus = "available" | "unavailable" | "unchecked";
 export type MetadataStatus = "complete" | "incomplete";
 export type CardVariant = "short" | "standard" | "portrait" | "tall";
 
@@ -29,25 +39,25 @@ export interface SavedItem {
   category: Category;
   domain: string;
   destinationUrl: string;
-  reelUrl?: string;
+  sourceUrl?: string;
+  sourcePlatform: SourcePlatform;
   notes: string;
   tags: string[];
   collectionIds: string[];
   state: ItemState;
-  reelStatus: ReelStatus;
+  sourceStatus: SourceStatus;
   metadataStatus: MetadataStatus;
   spriteIndex: number;
   variant: CardVariant;
-  thumbnailData?: string;
+  thumbnailKey?: string;
   lastOpenedAt?: string;
+  trashedAt?: string;
 }
 
 export interface Collection {
   id: string;
   title: string;
   description: string;
-  itemIds: string[];
-  shared: boolean;
   updatedAt: string;
 }
 
@@ -56,11 +66,24 @@ export type ViewId =
   | "search"
   | "all"
   | "collections"
-  | "shared"
   | "archive"
   | "trash"
   | "settings";
 
 export type DateFilter = "all" | "today" | "week" | "month";
 export type Density = "grid" | "list";
-export type Theme = "light" | "dark";
+export type Theme = "light" | "dark" | "system";
+export type SortOrder = "newest" | "oldest" | "title";
+
+export interface ArchivePreferences {
+  density: Density;
+  recentSearches: string[];
+  theme: Theme;
+}
+
+export interface ArchiveSnapshot {
+  collections: Collection[];
+  items: SavedItem[];
+  preferences: ArchivePreferences;
+  thumbnailUrls: Record<string, string>;
+}
