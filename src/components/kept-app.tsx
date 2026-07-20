@@ -324,7 +324,7 @@ export function KeptApp() {
         <div className="app-column">
           <header className="mobile-topbar">
             <button type="button" className="mobile-brand" onClick={() => navigate("home")}>
-              <span>K</span> Kept
+              <img src="/apple-touch-icon.png" alt="Kept" className="brand-mark-img" width={35} height={35} /> Kept
             </button>
             <div>
               <button className="icon-button" type="button" onClick={() => setNotificationsOpen((value) => !value)} aria-label="Open notifications">

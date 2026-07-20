@@ -1,6 +1,6 @@
 {
-  "name": "Application",
-  "short_name": "App",
+  "name": "Kept",
+  "short_name": "Kept",
   "icons": [
     {
       "src": "/android-chrome-192x192.png",

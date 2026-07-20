@@ -25,7 +25,7 @@ export function Sidebar({ activeView, onNavigate, onSave }: SidebarProps) {
   return (
     <aside className="sidebar" aria-label="Main navigation">
       <div className="brand-block">
-        <span className="brand-mark">K</span>
+        <img src="/apple-touch-icon.png" alt="Kept" className="brand-mark-img" width={35} height={35} />
         <span className="brand-name">Kept</span>
       </div>
       <nav className="desktop-nav">
