@@ -37,6 +37,7 @@
   ],
   "exclude": [
     ".next",
+    "apps/mobile",
     "dist",
     "node_modules",
     "out"

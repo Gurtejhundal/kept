@@ -26,7 +26,7 @@ export const sourcePlatforms = [
 ] as const;
 export type SourcePlatform = (typeof sourcePlatforms)[number];
 export type SourceStatus = "available" | "unavailable" | "unchecked";
-export type MetadataStatus = "complete" | "incomplete";
+export type MetadataStatus = "pending" | "complete" | "partial" | "failed" | "manual";
 export type CardVariant = "short" | "standard" | "portrait" | "tall";
 
 export interface SavedItem {
@@ -52,6 +52,8 @@ export interface SavedItem {
   thumbnailKey?: string;
   lastOpenedAt?: string;
   trashedAt?: string;
+  updatedAt: string;
+  syncVersion: number;
 }
 
 export interface Collection {
@@ -59,6 +61,9 @@ export interface Collection {
   title: string;
   description: string;
   updatedAt: string;
+  archivedAt?: string;
+  sortOrder: number;
+  coverItemId?: string;
 }
 
 export type ViewId =
@@ -70,7 +75,8 @@ export type ViewId =
   | "trash"
   | "settings";
 
-export type DateFilter = "all" | "today" | "week" | "month";
+export type DateFilter = "all" | "today" | "week" | "month" | "custom";
+export type DateBasis = "memory" | "received" | "saved";
 export type Density = "grid" | "list";
 export type Theme = "light" | "dark" | "system";
 export type SortOrder = "newest" | "oldest" | "title";

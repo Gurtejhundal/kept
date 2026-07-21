@@ -1,4 +1,5 @@
-import { ArrowRight, Clock3, FolderHeart, Sparkles } from "lucide-react";
+import { type FormEvent, useState } from "react";
+import { ArrowRight, CalendarRange, Clock3, FolderHeart, Search, Sparkles } from "lucide-react";
 import type { Collection, SavedItem } from "@/lib/types";
 import { MemoryCard } from "./memory-card";
 
@@ -9,6 +10,7 @@ interface HomeViewProps {
   items: SavedItem[];
   onNavigateCollections: () => void;
   onOpenItem: (item: SavedItem) => void;
+  onSearch: (query: string) => void;
   onSave: () => void;
   thumbnailUrls: Record<string, string>;
 }
@@ -18,9 +20,11 @@ export function HomeView({
   items,
   onNavigateCollections,
   onOpenItem,
+  onSearch,
   onSave,
   thumbnailUrls,
 }: HomeViewProps) {
+  const [query, setQuery] = useState("");
   const activeItems = items
     .filter((item) => item.state === "active")
     .sort((left, right) => new Date(right.savedAt).getTime() - new Date(left.savedAt).getTime());
@@ -29,11 +33,24 @@ export function HomeView({
     .filter((item) => new Date(item.savedAt).getTime() < RESURFACE_BEFORE)
     .sort((left, right) => left.id.localeCompare(right.id))
     .slice(0, 2);
-  const incomplete = activeItems.filter((item) => item.metadataStatus === "incomplete").slice(0, 3);
+  const incomplete = activeItems.filter((item) => !["complete", "manual"].includes(item.metadataStatus)).slice(0, 3);
   const recentlyOpened = [...activeItems]
     .filter((item) => item.lastOpenedAt)
     .sort((left, right) => new Date(right.lastOpenedAt ?? 0).getTime() - new Date(left.lastOpenedAt ?? 0).getTime())
     .slice(0, 3);
+  const now = new Date();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+  const lastMonthItems = activeItems.filter((item) => {
+    const date = new Date(item.receivedAt ?? item.savedAt);
+    return date.getMonth() === lastMonth.getMonth()
+      && date.getFullYear() === lastMonth.getFullYear()
+      && Math.abs(date.getDate() - lastMonth.getDate()) <= 3;
+  }).slice(0, 3);
+
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (query.trim()) onSearch(query.trim());
+  }
 
   return (
     <section className="home-view" aria-labelledby="home-title">
@@ -45,6 +62,13 @@ export function HomeView({
         </div>
         <button className="primary-button" type="button" onClick={onSave}>Save a find</button>
       </header>
+
+      <form className="home-search" role="search" onSubmit={submitSearch}>
+        <Search size={22} aria-hidden="true" />
+        <label className="sr-only" htmlFor="home-search">Search your archive</label>
+        <input id="home-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search a title, creator, tag, collection, or memory…" />
+        <button className="primary-button" type="submit">Search</button>
+      </form>
 
       <section className="home-section" aria-labelledby="recent-title">
         <header className="section-heading-row"><div><span className="eyebrow">RECENT SAVES</span><h2 id="recent-title">Still fresh in your mind</h2></div><span>{recent.length} items</span></header>
@@ -89,6 +113,11 @@ export function HomeView({
       <section className="home-section recently-opened" aria-labelledby="opened-title">
         <header className="section-heading-row"><div><h2 id="opened-title">Recently opened</h2></div></header>
         {recentlyOpened.length ? recentlyOpened.map((item) => <button type="button" key={item.id} onClick={() => onOpenItem(item)}>{item.title}</button>) : <p className="muted-copy">Links you open will appear here for quick return.</p>}
+      </section>
+
+      <section className="home-section recently-opened" aria-labelledby="last-month-title">
+        <header className="section-heading-row"><div><CalendarRange size={18} aria-hidden="true" /><h2 id="last-month-title">Saved this time last month</h2></div></header>
+        {lastMonthItems.length ? lastMonthItems.map((item) => <button type="button" key={item.id} onClick={() => onOpenItem(item)}>{item.title}</button>) : <p className="muted-copy">Memories from this part of last month will appear here.</p>}
       </section>
     </section>
   );

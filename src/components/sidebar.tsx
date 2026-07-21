@@ -35,13 +35,14 @@ export function Sidebar({ activeView, onNavigate, onSave }: SidebarProps) {
             type="button"
             className={`nav-item ${activeView === id ? "active" : ""}`}
             onClick={() => onNavigate(id)}
+            aria-label={label}
             aria-current={activeView === id ? "page" : undefined}
           >
             <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
             <span>{label}</span>
           </button>
         ))}
-        <button type="button" className="sidebar-save" onClick={onSave}>
+        <button type="button" className="sidebar-save" onClick={onSave} aria-label="Save a find">
           <Plus aria-hidden="true" size={19} />
           <span>Save a find</span>
         </button>
@@ -53,6 +54,7 @@ export function Sidebar({ activeView, onNavigate, onSave }: SidebarProps) {
             type="button"
             className={`nav-item ${activeView === id ? "active" : ""}`}
             onClick={() => onNavigate(id)}
+            aria-label={label}
             aria-current={activeView === id ? "page" : undefined}
           >
             <Icon aria-hidden="true" size={20} strokeWidth={1.8} />
@@ -60,7 +62,7 @@ export function Sidebar({ activeView, onNavigate, onSave }: SidebarProps) {
           </button>
         ))}
       </nav>
-      <button type="button" className="profile-summary" onClick={() => onNavigate("settings")}>
+      <button type="button" className="profile-summary" onClick={() => onNavigate("settings")} aria-label="Open settings for this local archive">
         <span className="avatar">K</span>
         <span><strong>Local archive</strong><small>Private on this device</small></span>
       </button>

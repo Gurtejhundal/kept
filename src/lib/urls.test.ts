@@ -32,6 +32,12 @@ describe("URL ingestion", () => {
     ).toBe("https://example.com/item?color=black");
   });
 
+  it("preserves destination parameters that may be functional", () => {
+    expect(
+      normalizeUrl("https://example.com/join?ref=friend&share_id=abc&token=secret&utm_source=ig"),
+    ).toBe("https://example.com/join?ref=friend&share_id=abc&token=secret");
+  });
+
   it("separates a source post from its destination", () => {
     expect(
       splitSharedLinks([

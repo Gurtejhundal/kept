@@ -32,8 +32,6 @@ export function normalizeUrl(value: string): string {
     "igshid",
     "mc_cid",
     "mc_eid",
-    "ref",
-    "share_id",
   ].forEach((key) => url.searchParams.delete(key));
   url.hash = "";
   return url.toString();

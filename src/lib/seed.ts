@@ -7,7 +7,7 @@ function isoDaysAgo(days: number, hour = 12) {
   return value.toISOString();
 }
 
-export const seedItems: SavedItem[] = [
+const seedItemsBase: Array<Omit<SavedItem, "updatedAt" | "syncVersion">> = [
   {
     id: "silk-dress",
     title: "The black dress with the perfect drape",
@@ -222,7 +222,7 @@ export const seedItems: SavedItem[] = [
     collectionIds: ["study-reset"],
     state: "active",
     sourceStatus: "unchecked",
-    metadataStatus: "incomplete",
+    metadataStatus: "partial",
     spriteIndex: 10,
     variant: "standard",
   },
@@ -248,7 +248,13 @@ export const seedItems: SavedItem[] = [
   },
 ];
 
-export const seedCollections: Collection[] = [
+export const seedItems: SavedItem[] = seedItemsBase.map((item) => ({
+  ...item,
+  updatedAt: item.savedAt,
+  syncVersion: 0,
+}));
+
+const seedCollectionsBase: Array<Omit<Collection, "sortOrder">> = [
   {
     id: "wishlist",
     title: "Quiet wishlist",
@@ -268,3 +274,8 @@ export const seedCollections: Collection[] = [
     updatedAt: isoDaysAgo(7),
   },
 ];
+
+export const seedCollections: Collection[] = seedCollectionsBase.map((collection, sortOrder) => ({
+  ...collection,
+  sortOrder,
+}));

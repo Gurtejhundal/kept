@@ -30,14 +30,21 @@ import { SettingsView, type StorageEstimate } from "./settings-view";
 import { Sidebar } from "./sidebar";
 import {
   clearLocalArchive,
+  consumePendingShare,
+  deleteCollectionPermanently,
+  deleteItemPermanently,
+  getAssetBlob,
   getStorageEstimate,
   loadArchive,
   persistCollection,
   persistItem,
   persistItems,
   persistPreferences,
+  replaceItemThumbnail,
   requestPersistentStorage,
 } from "@/lib/archive-db";
+import { validateAndOptimizeImage } from "@/lib/images";
+import { memoryDate, searchScore } from "@/lib/search";
 import {
   categories,
   sourcePlatforms,
@@ -45,6 +52,7 @@ import {
   type Category,
   type Collection,
   type DateFilter,
+  type DateBasis,
   type Density,
   type ItemState,
   type SavedItem,
@@ -55,6 +63,9 @@ import {
   type ViewId,
 } from "@/lib/types";
 import { domainFromUrl, extractUrls, splitSharedLinks } from "@/lib/urls";
+import { getSupabaseBrowserClient } from "@/lib/supabase";
+import { syncArchive } from "@/lib/sync";
+import type { User } from "@supabase/supabase-js";
 
 interface ToastState {
   message: string;
@@ -62,6 +73,7 @@ interface ToastState {
 }
 
 interface SharedCapture {
+  media?: Blob;
   text?: string;
   title?: string;
   url?: string;
@@ -87,14 +99,18 @@ function groupLabel(value: string) {
   return new Intl.DateTimeFormat("en", { month: "long", year: "numeric" }).format(date);
 }
 
-function withinDateFilter(value: string, filter: DateFilter) {
+function withinDateFilter(value: string, filter: DateFilter, customStart: string, customEnd: string) {
   if (filter === "all") return true;
   const date = new Date(value);
   const now = new Date();
   if (filter === "today") return sameDay(date, now);
   const difference = now.getTime() - date.getTime();
   if (filter === "week") return difference <= 7 * 86_400_000;
-  return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+  if (filter === "month") return date.getMonth() === now.getMonth() && date.getFullYear() === now.getFullYear();
+  const timestamp = date.getTime();
+  const start = customStart ? new Date(`${customStart}T00:00:00`).getTime() : Number.NEGATIVE_INFINITY;
+  const end = customEnd ? new Date(`${customEnd}T23:59:59.999`).getTime() : Number.POSITIVE_INFINITY;
+  return timestamp >= start && timestamp <= end;
 }
 
 const viewCopy: Record<Exclude<ViewId, "home" | "collections" | "settings">, { eyebrow: string; title: string; description: string }> = {
@@ -138,10 +154,14 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
   const [activeView, setActiveView] = useState<ViewId>("home");
   const [query, setQuery] = useState("");
   const [dateFilter, setDateFilter] = useState<DateFilter>("all");
+  const [dateBasis, setDateBasis] = useState<DateBasis>("memory");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<Category | "all">("all");
   const [sourceFilter, setSourceFilter] = useState<SourcePlatform | "all">("all");
   const [creatorFilter, setCreatorFilter] = useState("");
   const [sourceStatusFilter, setSourceStatusFilter] = useState<SourceStatus | "all">("all");
+  const [collectionFilter, setCollectionFilter] = useState("all");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
   const [density, setDensity] = useState<Density>("grid");
   const [theme, setTheme] = useState<Theme>("system");
@@ -156,6 +176,9 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
   const [storage, setStorage] = useState<StorageEstimate>(EMPTY_STORAGE);
   const [storageError, setStorageError] = useState("");
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [pendingCapture, setPendingCapture] = useState<SharedCapture | undefined>(sharedCapture);
+  const [user, setUser] = useState<User | null>(null);
+  const [syncStatus, setSyncStatus] = useState("");
 
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null;
 
@@ -180,33 +203,57 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
     }
   }, []);
 
+  const applySnapshot = useCallback(async () => {
+    const snapshot = await loadArchive();
+    Object.values(thumbnailUrlsRef.current).forEach((url) => URL.revokeObjectURL(url));
+    setItems(snapshot.items);
+    setCollections(snapshot.collections);
+    setThumbnailUrls(snapshot.thumbnailUrls);
+    setDensity(snapshot.preferences.density);
+    setRecentSearches(snapshot.preferences.recentSearches);
+    setTheme(snapshot.preferences.theme);
+    setHydrated(true);
+    await refreshStorage();
+  }, [refreshStorage]);
+
   useEffect(() => {
     let cancelled = false;
-    void loadArchive()
-      .then((snapshot) => {
-        if (cancelled) {
-          Object.values(snapshot.thumbnailUrls).forEach((url) => URL.revokeObjectURL(url));
-          return;
-        }
-        setItems(snapshot.items);
-        setCollections(snapshot.collections);
-        setThumbnailUrls(snapshot.thumbnailUrls);
-        setDensity(snapshot.preferences.density);
-        setRecentSearches(snapshot.preferences.recentSearches);
-        setTheme(snapshot.preferences.theme);
+    void loadArchive().then((snapshot) => {
+      if (cancelled) {
+        Object.values(snapshot.thumbnailUrls).forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+      setItems(snapshot.items);
+      setCollections(snapshot.collections);
+      setThumbnailUrls(snapshot.thumbnailUrls);
+      setDensity(snapshot.preferences.density);
+      setRecentSearches(snapshot.preferences.recentSearches);
+      setTheme(snapshot.preferences.theme);
+      setHydrated(true);
+      void refreshStorage();
+    }).catch(() => {
+      if (!cancelled) {
+        setStorageError("Kept could not open IndexedDB. Nothing new will be claimed as saved until storage recovers.");
         setHydrated(true);
-        void refreshStorage();
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStorageError("Kept could not open IndexedDB. Nothing new will be claimed as saved until storage recovers.");
-          setHydrated(true);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
+      }
+    });
+    return () => { cancelled = true; };
   }, [refreshStorage]);
+
+  useEffect(() => {
+    if (!hydrated || sharedCapture) return;
+    void consumePendingShare().then((capture) => {
+      if (capture) setPendingCapture(capture);
+    }).catch(() => setStorageError("Kept received a shared item but could not read it from local storage."));
+  }, [hydrated, sharedCapture]);
+
+  useEffect(() => {
+    const client = getSupabaseBrowserClient();
+    if (!client) return;
+    void client.auth.getUser().then(({ data }) => setUser(data.user));
+    const { data } = client.auth.onAuthStateChange((_event, session) => setUser(session?.user ?? null));
+    return () => data.subscription.unsubscribe();
+  }, []);
 
   useEffect(() => {
     thumbnailUrlsRef.current = thumbnailUrls;
@@ -245,8 +292,13 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
   useEffect(() => {
     if (process.env.NODE_ENV === "production" && "serviceWorker" in navigator) {
       void navigator.serviceWorker.register("/sw.js");
+      const onMessage = (event: MessageEvent<{ type?: string }>) => {
+        if (event.data?.type === "KEPT_UPDATED") showToast("Kept was updated. Reload when you are ready.");
+      };
+      navigator.serviceWorker.addEventListener("message", onMessage);
+      return () => navigator.serviceWorker.removeEventListener("message", onMessage);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (!hydrated || sharedCapture) return;
@@ -286,61 +338,66 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
   }, [notificationsOpen]);
 
   useEffect(() => {
-    if (!hydrated || !sharedCapture || shareProcessed.current) return;
+    if (!hydrated || !pendingCapture || shareProcessed.current) return;
     shareProcessed.current = true;
-    const sharedText = [sharedCapture.title, sharedCapture.text, sharedCapture.url].filter(Boolean).join(" ");
-    const detected = splitSharedLinks(extractUrls(sharedText));
-    if (!detected.destinationUrl) {
-      const frame = window.requestAnimationFrame(() => {
+    const processCapture = async () => {
+      const sharedText = [pendingCapture.title, pendingCapture.text, pendingCapture.url].filter(Boolean).join(" ");
+      const detected = splitSharedLinks(extractUrls(sharedText));
+      if (!detected.destinationUrl && !pendingCapture.media) {
         setComposerSharedText(sharedText);
         setComposerOpen(true);
-      });
-      return () => window.cancelAnimationFrame(frame);
-    }
-    const duplicate = items.find((item) => item.destinationUrl === detected.destinationUrl && item.state !== "trashed");
-    if (duplicate) {
-      const frame = window.requestAnimationFrame(() => {
+        return;
+      }
+      const duplicate = detected.destinationUrl
+        ? items.find((item) => item.destinationUrl === detected.destinationUrl && item.state !== "trashed")
+        : undefined;
+      if (duplicate) {
         setSelectedItemId(duplicate.id);
         showToast("This link is already in your archive");
-      });
-      return () => window.cancelAnimationFrame(frame);
-    }
-    const id = crypto.randomUUID();
-    const captured: SavedItem = {
-      id,
-      title: sharedCapture.title?.trim() || `Saved from ${domainFromUrl(detected.destinationUrl)}`,
-      creator: "Creator unknown",
-      handle: "@unknown",
-      savedAt: new Date().toISOString(),
-      category: "Other",
-      domain: domainFromUrl(detected.destinationUrl),
-      destinationUrl: detected.destinationUrl,
-      sourceUrl: detected.sourceUrl || undefined,
-      sourcePlatform: detected.sourcePlatform,
-      notes: sharedCapture.text?.trim() ?? "",
-      tags: [],
-      collectionIds: [],
-      state: "active",
-      sourceStatus: "unchecked",
-      metadataStatus: sharedCapture.title ? "complete" : "incomplete",
+        return;
+      }
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      const media = pendingCapture.media ? await validateAndOptimizeImage(pendingCapture.media) : undefined;
+      const captured: SavedItem = {
+        id,
+        title: pendingCapture.title?.trim() || (detected.destinationUrl ? `Saved from ${domainFromUrl(detected.destinationUrl)}` : "Saved image"),
+        creator: "Creator unknown",
+        handle: "@unknown",
+        savedAt: now,
+        category: "Other",
+        domain: detected.destinationUrl ? domainFromUrl(detected.destinationUrl) : "image capture",
+        destinationUrl: detected.destinationUrl,
+        sourceUrl: detected.sourceUrl || undefined,
+        sourcePlatform: detected.sourcePlatform,
+        notes: pendingCapture.text?.trim() ?? "",
+        tags: [],
+        collectionIds: [],
+        state: "active",
+        sourceStatus: "unchecked",
+        metadataStatus: pendingCapture.title ? "complete" : "partial",
         spriteIndex: -1,
-      variant: "standard",
+        variant: "standard",
+        thumbnailKey: media ? id : undefined,
+        updatedAt: now,
+        syncVersion: 0,
+      };
+      await persistItem(captured, media);
+      setItems((current) => [captured, ...current]);
+      if (media) setThumbnailUrls((current) => ({ ...current, [id]: URL.createObjectURL(media) }));
+      setSelectedItemId(id);
+      setStorageError("");
+      showToast("Saved from the share target");
+      window.history.replaceState({}, "", "/");
+      await refreshStorage();
     };
-    void persistItem(captured)
-      .then(() => {
-        setItems((current) => [captured, ...current]);
-        setSelectedItemId(id);
-        setStorageError("");
-        showToast("Saved from the share target");
-        window.history.replaceState({}, "", "/");
-        void refreshStorage();
-      })
-      .catch(() => {
-        setStorageError("The shared link could not be stored. Kept has kept the capture form open instead of pretending it saved.");
-        setComposerSharedText(sharedText);
-        setComposerOpen(true);
-      });
-  }, [hydrated, items, refreshStorage, sharedCapture, showToast]);
+    void processCapture().catch(() => {
+      shareProcessed.current = false;
+      setStorageError("The shared item could not be stored. Kept opened the capture form instead of claiming success.");
+      setComposerSharedText([pendingCapture.title, pendingCapture.text, pendingCapture.url].filter(Boolean).join(" "));
+      setComposerOpen(true);
+    });
+  }, [hydrated, items, pendingCapture, refreshStorage, showToast]);
 
   const visibleItems = useMemo(() => {
     const desiredState: ItemState = activeView === "archive" ? "archived" : activeView === "trash" ? "trashed" : "active";
@@ -348,35 +405,36 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
     const normalizedCreator = creatorFilter.trim().toLowerCase();
     const filtered = items
       .filter((item) => item.state === desiredState)
-      .filter((item) => withinDateFilter(item.savedAt, dateFilter))
+      .filter((item) => withinDateFilter(memoryDate(item, dateBasis), dateFilter, customStart, customEnd))
       .filter((item) => categoryFilter === "all" || item.category === categoryFilter)
       .filter((item) => sourceFilter === "all" || item.sourcePlatform === sourceFilter)
       .filter((item) => sourceStatusFilter === "all" || item.sourceStatus === sourceStatusFilter)
+      .filter((item) => collectionFilter === "all" || item.collectionIds.includes(collectionFilter))
       .filter((item) => !normalizedCreator || `${item.creator} ${item.handle}`.toLowerCase().includes(normalizedCreator))
-      .filter((item) => {
-        if (!normalizedQuery) return true;
-        return [item.title, item.creator, item.handle, item.category, item.sourcePlatform, item.domain, item.notes, ...item.tags]
-          .some((value) => value.toLowerCase().includes(normalizedQuery));
-      });
+      .filter((item) => !normalizedQuery || searchScore(item, collections, normalizedQuery) > 0);
 
     return filtered.sort((left, right) => {
+      if (normalizedQuery) {
+        const rankDifference = searchScore(right, collections, normalizedQuery) - searchScore(left, collections, normalizedQuery);
+        if (rankDifference !== 0) return rankDifference;
+      }
       if (sortOrder === "title") return left.title.localeCompare(right.title);
-      const difference = new Date(right.savedAt).getTime() - new Date(left.savedAt).getTime();
+      const difference = new Date(memoryDate(right, dateBasis)).getTime() - new Date(memoryDate(left, dateBasis)).getTime();
       return sortOrder === "oldest" ? -difference : difference;
     });
-  }, [activeView, categoryFilter, creatorFilter, dateFilter, items, query, sortOrder, sourceFilter, sourceStatusFilter]);
+  }, [activeView, categoryFilter, collectionFilter, collections, creatorFilter, customEnd, customStart, dateBasis, dateFilter, items, query, sortOrder, sourceFilter, sourceStatusFilter]);
 
   const groupedItems = useMemo(() => {
     const groups = new Map<string, SavedItem[]>();
     visibleItems.forEach((item) => {
-      const label = groupLabel(item.savedAt);
+      const label = groupLabel(memoryDate(item, dateBasis));
       groups.set(label, [...(groups.get(label) ?? []), item]);
     });
     return Array.from(groups.entries());
-  }, [visibleItems]);
+  }, [dateBasis, visibleItems]);
 
   const notificationItems = useMemo(() => {
-    const incomplete = items.filter((item) => item.state === "active" && item.metadataStatus === "incomplete").slice(0, 2);
+    const incomplete = items.filter((item) => item.state === "active" && !["complete", "manual"].includes(item.metadataStatus)).slice(0, 2);
     const resurface = items.find((item) => item.state === "active" && new Date(item.savedAt).getTime() < RESURFACE_BEFORE);
     return resurface && !incomplete.some((item) => item.id === resurface.id) ? [...incomplete, resurface] : incomplete;
   }, [items]);
@@ -390,7 +448,7 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
   }
 
   async function saveNewItem(input: NewItemInput) {
-    const duplicate = items.find((item) => item.destinationUrl === input.destinationUrl && item.state !== "trashed");
+    const duplicate = input.destinationUrl ? items.find((item) => item.destinationUrl === input.destinationUrl && item.state !== "trashed") : undefined;
     if (duplicate) {
       setComposerOpen(false);
       setSelectedItemId(duplicate.id);
@@ -399,15 +457,16 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
     }
     const id = crypto.randomUUID();
     const creator = input.creator.replace(/^@/, "");
+    const now = new Date().toISOString();
     const item: SavedItem = {
       id,
       title: input.title,
       creator: creator || "Creator unknown",
       handle: creator ? `@${creator.toLowerCase().replaceAll(" ", "")}` : "@unknown",
-      savedAt: new Date().toISOString(),
+      savedAt: now,
       receivedAt: input.receivedAt ? new Date(`${input.receivedAt}T12:00:00`).toISOString() : undefined,
       category: input.category,
-      domain: domainFromUrl(input.destinationUrl),
+      domain: input.destinationUrl ? domainFromUrl(input.destinationUrl) : "image capture",
       destinationUrl: input.destinationUrl,
       sourceUrl: input.sourceUrl || undefined,
       sourcePlatform: input.sourcePlatform,
@@ -416,10 +475,12 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
       collectionIds: input.collectionId ? [input.collectionId] : [],
       state: "active",
       sourceStatus: "unchecked",
-      metadataStatus: input.title ? "complete" : "incomplete",
+      metadataStatus: "manual",
       spriteIndex: -1,
       variant: ["standard", "portrait", "short", "tall"][items.length % 4] as SavedItem["variant"],
       thumbnailKey: input.thumbnailBlob ? id : undefined,
+      updatedAt: now,
+      syncVersion: 0,
     };
     await persistItem(item, input.thumbnailBlob);
     setItems((current) => [item, ...current]);
@@ -444,7 +505,7 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
   const updateItem = useCallback(async (id: string, patch: Partial<SavedItem>) => {
     const currentItem = items.find((item) => item.id === id);
     if (!currentItem) return;
-    const updated = { ...currentItem, ...patch };
+    const updated = { ...currentItem, ...patch, updatedAt: new Date().toISOString(), syncVersion: currentItem.syncVersion + 1 };
     try {
       await persistItem(updated);
       setItems((current) => current.map((item) => item.id === id ? updated : item));
@@ -478,19 +539,82 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
       .catch(() => setStorageError("Kept could not move that item. Its previous state remains saved."));
   }, [items, showToast]);
 
-  function createCollection(title: string, description: string) {
+  async function createCollection(title: string, description: string) {
     const collection: Collection = {
       id: crypto.randomUUID(),
       title,
       description: description || "A new place for related finds.",
       updatedAt: new Date().toISOString(),
+      sortOrder: collections.length,
     };
-    void persistCollection(collection)
-      .then(() => {
-        setCollections((current) => [collection, ...current]);
-        showToast("Collection created");
-      })
-      .catch(() => setStorageError("Kept could not store that collection."));
+    await persistCollection(collection);
+    setCollections((current) => [...current, collection]);
+    showToast("Collection created");
+  }
+
+  async function updateCollection(collection: Collection, patch: Partial<Collection>) {
+    const updated = { ...collection, ...patch, updatedAt: new Date().toISOString() };
+    await persistCollection(updated);
+    setCollections((current) => current.map((value) => value.id === updated.id ? updated : value));
+    showToast("Collection updated");
+  }
+
+  async function archiveCollection(collection: Collection, archived: boolean) {
+    await updateCollection(collection, { archivedAt: archived ? new Date().toISOString() : undefined });
+  }
+
+  async function deleteCollection(collection: Collection) {
+    await deleteCollectionPermanently(collection.id);
+    setCollections((current) => current.filter((value) => value.id !== collection.id));
+    setItems((current) => current.map((item) => item.collectionIds.includes(collection.id) ? { ...item, collectionIds: item.collectionIds.filter((id) => id !== collection.id) } : item));
+    if (collectionFilter === collection.id) setCollectionFilter("all");
+    showToast("Collection deleted; its items stayed in your archive");
+  }
+
+  async function reorderCollection(collection: Collection, direction: -1 | 1) {
+    const ordered = [...collections].sort((left, right) => left.sortOrder - right.sortOrder);
+    const index = ordered.findIndex((value) => value.id === collection.id);
+    const target = ordered[index + direction];
+    if (!target) return;
+    const updatedCollection = { ...collection, sortOrder: target.sortOrder, updatedAt: new Date().toISOString() };
+    const updatedTarget = { ...target, sortOrder: collection.sortOrder, updatedAt: new Date().toISOString() };
+    await Promise.all([persistCollection(updatedCollection), persistCollection(updatedTarget)]);
+    setCollections((current) => current.map((value) => value.id === updatedCollection.id ? updatedCollection : value.id === updatedTarget.id ? updatedTarget : value));
+  }
+
+  async function replaceThumbnail(id: string, blob: Blob) {
+    const item = items.find((value) => value.id === id);
+    if (!item) return;
+    const updated = { ...item, thumbnailKey: id, updatedAt: new Date().toISOString(), syncVersion: item.syncVersion + 1 };
+    await replaceItemThumbnail(updated, blob);
+    const previousUrl = thumbnailUrls[id];
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    setItems((current) => current.map((value) => value.id === id ? updated : value));
+    setThumbnailUrls((current) => ({ ...current, [id]: URL.createObjectURL(blob) }));
+  }
+
+  async function deleteItem(id: string) {
+    await deleteItemPermanently(id);
+    const thumbnailUrl = thumbnailUrls[id];
+    if (thumbnailUrl) URL.revokeObjectURL(thumbnailUrl);
+    setItems((current) => current.filter((item) => item.id !== id));
+    setThumbnailUrls((current) => { const next = { ...current }; delete next[id]; return next; });
+    setSelectedItemId(null);
+    showToast("Item permanently deleted");
+  }
+
+  async function duplicateItem(id: string) {
+    const original = items.find((item) => item.id === id);
+    if (!original) return;
+    const newId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const asset = await getAssetBlob(id);
+    const duplicate = { ...original, id: newId, title: `Copy of ${original.title}`, savedAt: now, updatedAt: now, lastOpenedAt: undefined, trashedAt: undefined, state: "active" as const, syncVersion: 0, thumbnailKey: asset ? newId : undefined };
+    await persistItem(duplicate, asset);
+    setItems((current) => [duplicate, ...current]);
+    if (asset) setThumbnailUrls((current) => ({ ...current, [newId]: URL.createObjectURL(asset) }));
+    setSelectedItemId(newId);
+    showToast("Duplicate created");
   }
 
   function rememberSearch(value = query) {
@@ -535,6 +659,21 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
     showToast(persisted ? "Browser storage protection enabled" : "This browser did not grant persistent storage");
   }
 
+  async function runSync() {
+    if (!user) return;
+    setSyncStatus("Syncing local and cloud changes…");
+    try {
+      const result = await syncArchive(user);
+      await applySnapshot();
+      setSyncStatus(`Synced ${result.items} items and ${result.collections} collections at ${new Intl.DateTimeFormat("en", { timeStyle: "short" }).format(new Date())}.`);
+      showToast("Archive synced across devices");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Sync failed.";
+      setSyncStatus(`Sync failed: ${message}`);
+      setStorageError("Cross-device sync failed. Your local archive remains intact.");
+    }
+  }
+
   async function bulkMove(state: ItemState) {
     const selected = items.filter((item) => bulkSelection.includes(item.id));
     const updated = selected.map((item) => ({ ...item, state, trashedAt: state === "trashed" ? new Date().toISOString() : undefined }));
@@ -554,7 +693,7 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
     setBulkSelection((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id]);
   }
 
-  const filtersActive = categoryFilter !== "all" || sourceFilter !== "all" || sourceStatusFilter !== "all" || creatorFilter.trim() !== "";
+  const filtersActive = categoryFilter !== "all" || sourceFilter !== "all" || sourceStatusFilter !== "all" || collectionFilter !== "all" || creatorFilter.trim() !== "";
   const showLibrary = ["search", "all", "archive", "trash"].includes(activeView);
   const currentCopy = showLibrary ? viewCopy[activeView as keyof typeof viewCopy] : null;
 
@@ -598,7 +737,7 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
 
           <main id="main-content" className="main-content">
             {activeView === "home" && (
-              <HomeView collections={collections} items={items} thumbnailUrls={thumbnailUrls} onNavigateCollections={() => navigate("collections")} onOpenItem={(item) => setSelectedItemId(item.id)} onSave={() => setComposerOpen(true)} />
+              <HomeView collections={collections} items={items} thumbnailUrls={thumbnailUrls} onNavigateCollections={() => navigate("collections")} onOpenItem={(item) => setSelectedItemId(item.id)} onSave={() => setComposerOpen(true)} onSearch={(value) => { setQuery(value); navigate("search"); rememberSearch(value); }} />
             )}
 
             {showLibrary && currentCopy && (
@@ -628,7 +767,7 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
 
                   <div className="library-toolbar">
                     <div className="date-rail" aria-label="Date range">
-                      {([["today", "Today"], ["week", "This week"], ["month", new Intl.DateTimeFormat("en", { month: "long" }).format(new Date())], ["all", "All dates"]] as Array<[DateFilter, string]>).map(([value, label]) => (
+                      {([["today", "Today"], ["week", "This week"], ["month", new Intl.DateTimeFormat("en", { month: "long" }).format(new Date())], ["custom", "Custom"], ["all", "All dates"]] as Array<[DateFilter, string]>).map(([value, label]) => (
                         <button key={value} type="button" className={dateFilter === value ? "active" : ""} onClick={() => setDateFilter(value)}>{value === "all" && <CalendarDays size={15} aria-hidden="true" />}{label}</button>
                       ))}
                     </div>
@@ -647,11 +786,14 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
 
                   {filtersOpen && (
                     <div className="filter-drawer" id="filter-drawer">
+                      <div className="form-stack"><label htmlFor="filter-date-basis">Date meaning</label><div className="select-wrap"><select id="filter-date-basis" value={dateBasis} onChange={(event) => setDateBasis(event.target.value as DateBasis)}><option value="memory">Received, then saved</option><option value="received">Date received</option><option value="saved">Date saved</option></select><ChevronDown size={16} aria-hidden="true" /></div></div>
+                      {dateFilter === "custom" && <><div className="form-stack"><label htmlFor="filter-start">From</label><input id="filter-start" type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} /></div><div className="form-stack"><label htmlFor="filter-end">To</label><input id="filter-end" type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} /></div></>}
                       <div className="form-stack"><label htmlFor="filter-category">Category</label><div className="select-wrap"><select id="filter-category" value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value as Category | "all")}><option value="all">All categories</option>{categories.map((category) => <option key={category}>{category}</option>)}</select><ChevronDown size={16} aria-hidden="true" /></div></div>
                       <div className="form-stack"><label htmlFor="filter-platform">Platform</label><div className="select-wrap"><select id="filter-platform" value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as SourcePlatform | "all")}><option value="all">All platforms</option>{sourcePlatforms.map((platform) => <option key={platform}>{platform}</option>)}</select><ChevronDown size={16} aria-hidden="true" /></div></div>
                       <div className="form-stack"><label htmlFor="filter-creator">Creator</label><input id="filter-creator" value={creatorFilter} onChange={(event) => setCreatorFilter(event.target.value)} placeholder="Name or @handle" /></div>
                       <div className="form-stack"><label htmlFor="filter-status">Source status</label><div className="select-wrap"><select id="filter-status" value={sourceStatusFilter} onChange={(event) => setSourceStatusFilter(event.target.value as SourceStatus | "all")}><option value="all">Any status</option><option value="available">Available</option><option value="unchecked">Not checked</option><option value="unavailable">Unavailable</option></select><ChevronDown size={16} aria-hidden="true" /></div></div>
-                      <button className="quiet-action clear-filters" type="button" onClick={() => { setCategoryFilter("all"); setSourceFilter("all"); setSourceStatusFilter("all"); setCreatorFilter(""); }}><X size={15} aria-hidden="true" /> Clear filters</button>
+                      <div className="form-stack"><label htmlFor="filter-collection">Collection</label><div className="select-wrap"><select id="filter-collection" value={collectionFilter} onChange={(event) => setCollectionFilter(event.target.value)}><option value="all">All collections</option>{collections.filter((collection) => !collection.archivedAt).map((collection) => <option key={collection.id} value={collection.id}>{collection.title}</option>)}</select><ChevronDown size={16} aria-hidden="true" /></div></div>
+                      <button className="quiet-action clear-filters" type="button" onClick={() => { setCategoryFilter("all"); setSourceFilter("all"); setSourceStatusFilter("all"); setCollectionFilter("all"); setCreatorFilter(""); setCustomStart(""); setCustomEnd(""); }}><X size={15} aria-hidden="true" /> Clear filters</button>
                     </div>
                   )}
                 </div>
@@ -684,8 +826,8 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
               </>
             )}
 
-            {activeView === "collections" && <CollectionsView collections={collections} items={items} thumbnailUrls={thumbnailUrls} onCreate={createCollection} onOpenItem={(item) => setSelectedItemId(item.id)} />}
-            {activeView === "settings" && <SettingsView theme={theme} density={density} items={items} recentSearches={recentSearches} storage={storage} onThemeChange={changeTheme} onDensityChange={changeDensity} onClearSearchHistory={clearSearchHistory} onRequestPersistence={protectStorage} onResetArchive={resetArchive} onToast={showToast} />}
+            {activeView === "collections" && <CollectionsView collections={collections} items={items} thumbnailUrls={thumbnailUrls} onArchive={archiveCollection} onCreate={createCollection} onDelete={deleteCollection} onFilter={(id) => { setCollectionFilter(id); navigate("all"); setFiltersOpen(true); }} onOpenItem={(item) => setSelectedItemId(item.id)} onReorder={reorderCollection} onUpdate={updateCollection} />}
+            {activeView === "settings" && <SettingsView theme={theme} density={density} items={items} collections={collections} recentSearches={recentSearches} storage={storage} syncStatus={syncStatus} user={user} onArchiveImported={applySnapshot} onSync={runSync} onThemeChange={changeTheme} onDensityChange={changeDensity} onClearSearchHistory={clearSearchHistory} onRequestPersistence={protectStorage} onResetArchive={resetArchive} onToast={showToast} />}
           </main>
         </div>
 
@@ -693,7 +835,7 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
           <aside ref={notificationPopoverRef} className="notifications-popover" id="notifications-popover" role="dialog" aria-modal="false" aria-labelledby="notifications-title">
             <header><div><span className="eyebrow">FROM YOUR ARCHIVE</span><h2 id="notifications-title">Useful reminders</h2></div><button className="icon-button" type="button" onClick={() => { setNotificationsOpen(false); notificationTriggerRef.current?.focus(); }} aria-label="Close reminders"><X size={18} aria-hidden="true" /></button></header>
             {notificationItems.length ? notificationItems.map((item) => (
-              <button type="button" key={item.id} onClick={() => { setNotificationsOpen(false); setSelectedItemId(item.id); }}><span className="notification-icon"><CalendarDays size={18} aria-hidden="true" /></span><span><strong>{item.metadataStatus === "incomplete" ? "This save needs context" : "Worth another look"}</strong><small>{item.title}</small></span></button>
+              <button type="button" key={item.id} onClick={() => { setNotificationsOpen(false); setSelectedItemId(item.id); }}><span className="notification-icon"><CalendarDays size={18} aria-hidden="true" /></span><span><strong>{!["complete", "manual"].includes(item.metadataStatus) ? "This save needs context" : "Worth another look"}</strong><small>{item.title}</small></span></button>
             )) : <p className="popover-empty">No reminders right now.</p>}
           </aside>
         )}
@@ -702,7 +844,7 @@ export function KeptApp({ sharedCapture }: KeptAppProps) {
       </div>
 
       {composerOpen && <SaveComposer collections={collections} initialSharedText={composerSharedText} onClose={() => { setComposerOpen(false); setComposerSharedText(""); }} onSave={saveNewItem} />}
-      {selectedItem && <DetailPanel key={selectedItem.id} item={selectedItem} collections={collections} thumbnailUrl={thumbnailUrls[selectedItem.id]} onClose={() => setSelectedItemId(null)} onUpdate={updateItem} onMove={moveItem} onToast={showToast} />}
+      {selectedItem && <DetailPanel key={selectedItem.id} item={selectedItem} collections={collections} thumbnailUrl={thumbnailUrls[selectedItem.id]} onClose={() => setSelectedItemId(null)} onDelete={deleteItem} onDuplicate={duplicateItem} onReplaceThumbnail={replaceThumbnail} onUpdate={updateItem} onMove={moveItem} onToast={showToast} />}
       {toast && <div className="toast" role="status" aria-live="polite"><Check size={17} aria-hidden="true" /><span>{toast.message}</span>{toast.undo && <button type="button" onClick={() => void toast.undo?.()}>Undo</button>}<button className="toast-close" type="button" onClick={() => setToast(null)} aria-label="Dismiss message"><X size={16} aria-hidden="true" /></button></div>}
     </div>
   );

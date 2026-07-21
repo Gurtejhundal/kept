@@ -27,6 +27,7 @@ import {
   splitSharedLinks,
 } from "@/lib/urls";
 import { useDialogFocus } from "@/lib/use-dialog-focus";
+import { validateAndOptimizeImage } from "@/lib/images";
 
 export interface NewItemInput {
   title: string;
@@ -65,6 +66,7 @@ export function SaveComposer({ collections, initialSharedText = "", onClose, onS
   const [thumbnailBlob, setThumbnailBlob] = useState<Blob>();
   const [thumbnailPreview, setThumbnailPreview] = useState("");
   const [saving, setSaving] = useState(false);
+  const [metadataLoading, setMetadataLoading] = useState(false);
   const [error, setError] = useState("");
 
   const detectedUrls = useMemo(() => extractUrls(sharedText), [sharedText]);
@@ -91,31 +93,63 @@ export function SaveComposer({ collections, initialSharedText = "", onClose, onS
       const domain = domainFromUrl(detected.destinationUrl).split(".")[0];
       setTitle(`Find from ${domain.charAt(0).toUpperCase()}${domain.slice(1)}`);
     }
+    if (detected.destinationUrl) void enrichMetadata(detected.destinationUrl);
     titleRef.current?.focus();
+  }
+
+  async function enrichMetadata(url: string) {
+    setMetadataLoading(true);
+    try {
+      const response = await fetch("/api/metadata", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url }) });
+      if (!response.ok) return;
+      const metadata = await response.json() as { description?: string; title?: string };
+      if (metadata.title) setTitle((current) => current.startsWith("Find from ") || !current ? metadata.title as string : current);
+      if (metadata.description) setNotes((current) => current || metadata.description as string);
+    } catch {
+      // Enrichment is optional and must never block capture.
+    } finally {
+      setMetadataLoading(false);
+    }
+  }
+
+  async function setImage(file: Blob) {
+    try {
+      const optimized = await validateAndOptimizeImage(file);
+      if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
+      setThumbnailBlob(optimized);
+      setThumbnailPreview(URL.createObjectURL(optimized));
+      setError("");
+    } catch (imageError) {
+      setError(imageError instanceof Error ? imageError.message : "The image could not be prepared.");
+    }
   }
 
   function handleImage(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      setError("Choose an image file for the thumbnail.");
-      return;
+    if (file) void setImage(file);
+    event.target.value = "";
+  }
+
+  async function pasteFromClipboard() {
+    try {
+      const value = await navigator.clipboard.readText();
+      if (!value.trim()) throw new Error("The clipboard does not contain text.");
+      setSharedText(value);
+      applyDetectedLinks(value);
+    } catch (clipboardError) {
+      setError(clipboardError instanceof Error ? clipboardError.message : "Clipboard access was not available.");
     }
-    if (file.size > 8 * 1024 * 1024) {
-      setError("Keep visual references under 8 MB.");
-      return;
-    }
-    if (thumbnailPreview) URL.revokeObjectURL(thumbnailPreview);
-    setThumbnailBlob(file);
-    setThumbnailPreview(URL.createObjectURL(file));
-    setError("");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
-    if (!isSafeWebUrl(destinationUrl)) {
-      setError("Add a valid http or https destination link.");
+    if (!destinationUrl && !thumbnailBlob) {
+      setError("Add a destination link or an image.");
+      return;
+    }
+    if (destinationUrl && !isSafeWebUrl(destinationUrl)) {
+      setError("Destination link must use http or https.");
       return;
     }
     if (sourceUrl && !isSafeWebUrl(sourceUrl)) {
@@ -125,11 +159,11 @@ export function SaveComposer({ collections, initialSharedText = "", onClose, onS
     setSaving(true);
     try {
       await onSave({
-        title: title.trim() || `Saved from ${domainFromUrl(destinationUrl)}`,
+        title: title.trim() || (destinationUrl ? `Saved from ${domainFromUrl(destinationUrl)}` : "Saved image"),
         creator: creator.trim(),
         category,
         collectionId,
-        destinationUrl: normalizeUrl(destinationUrl),
+        destinationUrl: destinationUrl ? normalizeUrl(destinationUrl) : "",
         sourcePlatform,
         sourceUrl: sourceUrl ? normalizeUrl(sourceUrl) : "",
         notes: notes.trim(),
@@ -173,20 +207,18 @@ export function SaveComposer({ collections, initialSharedText = "", onClose, onS
             />
             <div className="paste-summary">
               <span><Link2 size={15} aria-hidden="true" /> {detectedUrls.length || "No"} link{detectedUrls.length === 1 ? "" : "s"} detected</span>
-              <button type="button" onClick={() => applyDetectedLinks()} disabled={detectedUrls.length === 0}>
-                Use detected links <ArrowRight size={14} aria-hidden="true" />
-              </button>
+              <span className="paste-summary-actions"><button type="button" onClick={() => void pasteFromClipboard()}>Paste clipboard</button><button type="button" onClick={() => applyDetectedLinks()} disabled={detectedUrls.length === 0}>Use detected links <ArrowRight size={14} aria-hidden="true" /></button></span>
             </div>
           </div>
 
-          <div className="composer-preview">
+          <div className="composer-preview" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); const file = event.dataTransfer.files?.[0]; if (file) void setImage(file); }}>
             {thumbnailPreview ? (
               <Image src={thumbnailPreview} alt="New visual reference preview" fill unoptimized className="memory-image" />
             ) : (
               <label className="thumbnail-picker" htmlFor="thumbnail-file">
                 <ImagePlus size={27} aria-hidden="true" />
                 <strong>Add visual reference</strong>
-                <span>Optional · JPG, PNG, or WebP</span>
+                <span>Optional · drop or choose JPG, PNG, or WebP</span>
               </label>
             )}
             <input id="thumbnail-file" className="sr-only" type="file" accept="image/png,image/jpeg,image/webp" onChange={handleImage} />
@@ -238,10 +270,9 @@ export function SaveComposer({ collections, initialSharedText = "", onClose, onS
                 value={destinationUrl}
                 onChange={(event) => setDestinationUrl(event.target.value)}
                 placeholder="https://..."
-                required
               />
             </div>
-            <span className="input-hint">{visibleDomain}</span>
+            <span className="input-hint">{destinationUrl ? visibleDomain : "Optional when an image is attached"}</span>
           </div>
 
           <details className="advanced-fields">
@@ -279,7 +310,7 @@ export function SaveComposer({ collections, initialSharedText = "", onClose, onS
 
           <div className="composer-domain-line" id="composer-description">
             <Clock3 size={15} aria-hidden="true" />
-            <span>Details and image blobs are stored separately on this device.</span>
+            <span>{metadataLoading ? "Checking public page details in the background…" : "Details and image blobs are stored separately on this device."}</span>
           </div>
 
           <button className="primary-button save-submit" type="submit" disabled={saving}>

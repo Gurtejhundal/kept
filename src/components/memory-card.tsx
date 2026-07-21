@@ -18,10 +18,11 @@ function formatCompactDate(value: string) {
 }
 
 export function MemoryCard({ item, onOpen, list = false, priority, thumbnailUrl }: MemoryCardProps) {
+  const needsContext = !["complete", "manual"].includes(item.metadataStatus);
   const statusLabel =
     item.sourceStatus === "unavailable"
       ? "Source unavailable"
-      : item.metadataStatus === "incomplete"
+      : needsContext
         ? "Details incomplete"
         : item.sourceStatus === "unchecked"
           ? "Source not checked"
@@ -73,12 +74,12 @@ export function MemoryCard({ item, onOpen, list = false, priority, thumbnailUrl 
           <span className="card-footer">
             <span className={`category category-${item.category.toLowerCase()}`}>{item.category}</span>
             <span className={`card-status status-${item.sourceStatus}`} title={statusLabel}>
-              {item.metadataStatus === "incomplete" ? (
+              {needsContext ? (
                 <CircleAlert size={13} aria-hidden="true" />
               ) : (
                 <CircleCheck size={13} aria-hidden="true" />
               )}
-              <span>{item.metadataStatus === "incomplete" ? "Complete details" : "Saved"}</span>
+              <span>{needsContext ? "Complete details" : "Saved"}</span>
             </span>
           </span>
         </span>

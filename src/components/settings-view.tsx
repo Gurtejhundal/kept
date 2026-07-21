@@ -1,7 +1,11 @@
 "use client";
 
-import { Download, Grid2X2, HardDrive, List, Monitor, Moon, ShieldCheck, Sun, Trash2 } from "lucide-react";
-import type { Density, SavedItem, Theme } from "@/lib/types";
+import { useRef, useState } from "react";
+import { Download, Grid2X2, HardDrive, List, Monitor, Moon, ShieldCheck, Sun, Trash2, Upload } from "lucide-react";
+import { createArchiveBackup, importArchiveBackup, previewArchiveBackup, type BackupPreview } from "@/lib/archive-db";
+import type { Collection, Density, SavedItem, Theme } from "@/lib/types";
+import type { User } from "@supabase/supabase-js";
+import { AccountCard } from "./account-card";
 
 export interface StorageEstimate {
   persisted: boolean;
@@ -11,16 +15,21 @@ export interface StorageEstimate {
 
 interface SettingsViewProps {
   density: Density;
+  collections: Collection[];
   items: SavedItem[];
   onClearSearchHistory: () => Promise<void>;
   onDensityChange: (density: Density) => void;
   onRequestPersistence: () => Promise<void>;
+  onArchiveImported: () => Promise<void>;
   onResetArchive: () => Promise<void>;
   onThemeChange: (theme: Theme) => void;
   onToast: (message: string) => void;
   recentSearches: string[];
   storage: StorageEstimate;
+  syncStatus: string;
   theme: Theme;
+  user: User | null;
+  onSync: () => Promise<void>;
 }
 
 function downloadFile(contents: string, fileName: string, type: string) {
@@ -41,18 +50,28 @@ function formatBytes(value: number) {
 }
 
 export function SettingsView({
+  collections,
   density,
   items,
   onClearSearchHistory,
   onDensityChange,
   onRequestPersistence,
+  onArchiveImported,
   onResetArchive,
   onThemeChange,
   onToast,
   recentSearches,
   storage,
+  syncStatus,
   theme,
+  user,
+  onSync,
 }: SettingsViewProps) {
+  const importInputRef = useRef<HTMLInputElement>(null);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<BackupPreview | null>(null);
+  const [importError, setImportError] = useState("");
+  const [importing, setImporting] = useState(false);
   function exportJson() {
     downloadFile(JSON.stringify(items, null, 2), "kept-export.json", "application/json");
     onToast("JSON export downloaded");
@@ -66,6 +85,50 @@ export function SettingsView({
     ];
     downloadFile(rows.map((row) => row.map(quoted).join(",")).join("\n"), "kept-export.csv", "text/csv");
     onToast("CSV export downloaded");
+  }
+
+  async function exportBackup() {
+    const backup = await createArchiveBackup();
+    const url = URL.createObjectURL(backup);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `kept-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    onToast("Complete ZIP backup downloaded");
+  }
+
+  async function inspectImport(file: File) {
+    setImportError("");
+    setImportPreview(null);
+    setImportFile(file);
+    try {
+      setImportPreview(await previewArchiveBackup(file));
+    } catch (error) {
+      setImportFile(null);
+      setImportError(error instanceof Error ? error.message : "Kept could not read that backup.");
+    }
+  }
+
+  async function runImport(mode: "merge" | "replace") {
+    if (!importFile) return;
+    if (mode === "replace" && !window.confirm("Replace every item, collection, preference, and image in this browser with this backup?")) return;
+    setImporting(true);
+    setImportError("");
+    try {
+      const result = await importArchiveBackup(importFile, mode);
+      await onArchiveImported();
+      setImportFile(null);
+      setImportPreview(null);
+      if (importInputRef.current) importInputRef.current.value = "";
+      onToast(`Imported ${result.importedItems} ${result.importedItems === 1 ? "item" : "items"}`);
+    } catch (error) {
+      setImportError(error instanceof Error ? error.message : "Kept could not import that backup.");
+    } finally {
+      setImporting(false);
+    }
   }
 
   async function confirmReset() {
@@ -86,6 +149,7 @@ export function SettingsView({
       </header>
 
       <div className="settings-grid">
+        <AccountCard user={user} syncStatus={syncStatus} onSync={onSync} />
         <article className="settings-card profile-card">
           <span className="settings-avatar">K</span>
           <div><h2>Local archive</h2><p>No account is connected. Data stays in this browser.</p></div>
@@ -116,16 +180,35 @@ export function SettingsView({
         </article>
 
         <article className="settings-card export-card">
-          <div className="settings-card-heading"><Download size={19} aria-hidden="true" /><div><h2>Export your archive</h2><p>Titles, notes, platforms, links, and dates remain portable.</p></div></div>
+          <div className="settings-card-heading"><Download size={19} aria-hidden="true" /><div><h2>Backup and export</h2><p>The ZIP backup includes {items.length} items, {collections.length} collections, preferences, and original image blobs.</p></div></div>
           <div className="settings-actions">
+            <button className="primary-button" type="button" onClick={() => void exportBackup()}>Download complete ZIP</button>
             <button className="secondary-button" type="button" onClick={exportJson}>Download JSON</button>
             <button className="secondary-button" type="button" onClick={exportCsv}>Download CSV</button>
           </div>
         </article>
 
+        <article className="settings-card export-card">
+          <div className="settings-card-heading"><Upload size={19} aria-hidden="true" /><div><h2>Restore a backup</h2><p>Kept validates the archive and previews duplicates before changing local data.</p></div></div>
+          <input ref={importInputRef} className="sr-only" id="backup-file" type="file" accept=".zip,application/zip" onChange={(event) => { const file = event.target.files?.[0]; if (file) void inspectImport(file); }} />
+          <label className="secondary-button import-file-button" htmlFor="backup-file">Choose Kept ZIP</label>
+          {importPreview && (
+            <div className="import-preview" role="status">
+              <strong>{importPreview.items} items · {importPreview.collections} collections · {importPreview.images} images</strong>
+              <span>{importPreview.duplicateItems} duplicate links · {importPreview.invalidItems + importPreview.invalidCollections} invalid records will be skipped</span>
+              <div className="settings-actions">
+                <button className="primary-button" type="button" disabled={importing} onClick={() => void runImport("merge")}>Merge without duplicates</button>
+                <button className="danger-outline-button" type="button" disabled={importing} onClick={() => void runImport("replace")}>Replace this archive</button>
+              </div>
+            </div>
+          )}
+          {importError && <p className="form-error" role="alert">{importError}</p>}
+        </article>
+
         <article className="settings-card privacy-card">
           <div className="settings-card-heading"><ShieldCheck size={19} aria-hidden="true" /><div><h2>Privacy by default</h2><p>Kept does not request social-media passwords or read private messages.</p></div></div>
           <button className="quiet-action" type="button" disabled={recentSearches.length === 0} onClick={() => void onClearSearchHistory()}>Clear {recentSearches.length || "no"} recent searches</button>
+          <div className="settings-actions"><a className="quiet-action" href="/privacy">Privacy</a><a className="quiet-action" href="/terms">Terms</a></div>
         </article>
 
         <article className="settings-card danger-card">

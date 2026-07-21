@@ -12,3 +12,5 @@ output/
 .env*
 !.env.example
 .openai/*.tar.gz
+apps/mobile/.expo/
+apps/mobile/dist/

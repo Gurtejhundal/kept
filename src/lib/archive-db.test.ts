@@ -30,7 +30,7 @@ describe("archive data migration", () => {
       theme: "dark",
     }));
     expect(migrated.items).toHaveLength(1);
-    expect(migrated.collections).toEqual([{ id: "ideas", title: "Ideas", description: "", updatedAt: expect.any(String) }]);
+    expect(migrated.collections).toEqual([{ id: "ideas", title: "Ideas", description: "", updatedAt: expect.any(String), sortOrder: 0 }]);
     expect(migrated.preferences).toMatchObject({ density: "list", theme: "dark" });
   });
 
