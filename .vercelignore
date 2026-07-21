@@ -1,0 +1,13 @@
+.git
+.github
+node_modules
+.next
+.vinext
+.wrangler
+dist
+out
+output
+eslint.config.mjs
+vitest.config.ts
+tsconfig.tsbuildinfo
+*.log
